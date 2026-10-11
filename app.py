@@ -164,9 +164,9 @@ def verify_password(stored_hash: str, password: str) -> bool:
         return False
 
 # ---------------------------------------------------------
-# TELEGRAM BİLDİRİM
+# TELEGRAM BİLDİRİM (NON-BLOCKING ASYNC)
 # ---------------------------------------------------------
-def send_telegram_sync(chat_id: str, message: str):
+def _send_telegram_worker(chat_id: str, message: str):
     if not chat_id or not TELEGRAM_BOT_TOKEN:
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -176,9 +176,15 @@ def send_telegram_sync(chat_id: str, message: str):
         "parse_mode": "HTML"
     }
     try:
-        requests.post(url, json=payload, timeout=5)
+        res = requests.post(url, json=payload, timeout=8)
+        data = res.json()
+        if not data.get("ok"):
+            print(f"[Telegram Alert Failed for {chat_id}]: {data.get('description')}")
     except Exception as e:
-        print(f"[Telegram Alert Error]: {e}")
+        print(f"[Telegram Network Error]: {e}")
+
+async def send_telegram(chat_id: str, message: str):
+    await asyncio.to_thread(_send_telegram_worker, chat_id, message)
 
 # ---------------------------------------------------------
 # YARDIMCI METODLAR & KULLANICI
@@ -282,31 +288,30 @@ def get_latest_filing_update(company_number: str):
     normalized_number = normalize_company_number(company_number)
     if not normalized_number:
         return None, None, None
-    url = f"{BASE_URL}/company/{normalized_number}/filing-history?items_per_page=1"
+    
+    url = f"{BASE_URL}/company/{normalized_number}/filing-history"
+    params = {"category": "insolvency", "items_per_page": 1}
     try:
-        res = requests.get(url, auth=(COMPANIES_HOUSE_API_KEY, ""), timeout=8)
-        if res.status_code != 200:
-            return None, None, None
-        items = res.json().get("items", [])
-        if not items:
-            return None, None, None
-        item = items[0]
-        return (
-            item.get("date"),
-            item.get("description", ""),
-            item.get("category", "")
-        )
+        res = requests.get(url, params=params, auth=(COMPANIES_HOUSE_API_KEY, ""), timeout=8)
+        if res.status_code == 200:
+            items = res.json().get("items", [])
+            if items:
+                item = items[0]
+                return (
+                    item.get("date"),
+                    item.get("description", ""),
+                    item.get("category", "insolvency")
+                )
     except Exception as e:
         print(f"[Companies House Filing Exception]: {e}")
-        return None, None, None
+    return None, None, None
 
 # ---------------------------------------------------------
-# ARKA PLAN GÖREVİ
+# ARKA PLAN GÖREVİ (ÖNCE ÇALIŞTIR, SONRA UYU)
 # ---------------------------------------------------------
 async def automated_background_monitor():
     while True:
         try:
-            await asyncio.sleep(3600)
             conn = get_db()
             cursor = conn.cursor()
             cursor.execute("""
@@ -330,11 +335,6 @@ async def automated_background_monitor():
                 filing_changed = (
                     latest_filing_date is not None
                     and latest_filing_date != item["last_filing_date"]
-                    and (
-                        "insolvency" in (latest_filing_category or "").lower()
-                        or "gazette" in (latest_filing_category or "").lower()
-                        or "liquidation" in (latest_filing_description or "").lower()
-                    )
                 )
 
                 if status_changed or filing_changed:
@@ -359,17 +359,17 @@ async def automated_background_monitor():
                                 f"<b>New Status:</b> ⚠️ <b>{new_status.upper()}</b>\n\n"
                                 f"<i>Immediate attention recommended. Check official Companies House filing.</i>"
                             )
-                            send_telegram_sync(item["telegram_chat_id"], alert_msg)
+                            await send_telegram(item["telegram_chat_id"], alert_msg)
                     if filing_changed and item["telegram_chat_id"]:
                         filing_msg = (
                             f"🚨 <b>INSOLVENCY / GAZETTE ALERT</b>\n\n"
                             f"<b>Company:</b> {item['company_name']} ({item['company_number']})\n"
-                            f"<b>Latest filing:</b> {latest_filing_description or 'No description'}\n"
-                            f"<b>Category:</b> {latest_filing_category or 'Unknown'}\n"
+                            f"<b>Latest filing:</b> {latest_filing_description or 'Insolvency Notice'}\n"
+                            f"<b>Category:</b> {latest_filing_category or 'Insolvency'}\n"
                             f"<b>Date:</b> {latest_filing_date}\n\n"
                             f"<i>New official notice detected in Companies House filing history.</i>"
                         )
-                        send_telegram_sync(item["telegram_chat_id"], filing_msg)
+                        await send_telegram(item["telegram_chat_id"], filing_msg)
 
                 q_sync = format_query("""
                     UPDATE watchlist 
@@ -396,6 +396,9 @@ async def automated_background_monitor():
             conn.close()
         except Exception as e:
             print(f"[Background Monitor Error]: {e}")
+        
+        # İlk taramayı yaptıktan sonra 1 saat uyu
+        await asyncio.sleep(3600)
 
 @app.on_event("startup")
 async def startup_event():
@@ -516,7 +519,7 @@ async def track_company(
             f"<b>Current Legal Status:</b> {status.strip().upper()}\n\n"
             f"✅ <i>24/7 automated insolvency monitoring is now active. You will receive an instant notification here if this entity enters liquidation, administration, or strike-off.</i>"
         )
-        send_telegram_sync(user["telegram_chat_id"], welcome_alert)
+        await send_telegram(user["telegram_chat_id"], welcome_alert)
 
     return RedirectResponse(url="/", status_code=303)
 
@@ -618,7 +621,7 @@ async def register(
             f"Your Telegram Chat ID has been linked successfully.\n"
             f"Automated monitoring will dispatch alerts directly here."
         )
-        send_telegram_sync(chat_id_clean, reg_msg)
+        await send_telegram(chat_id_clean, reg_msg)
     
     response = RedirectResponse(url="/", status_code=303)
     response.set_cookie(
