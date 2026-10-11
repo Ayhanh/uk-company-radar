@@ -20,10 +20,11 @@ BASE_DIR = Path(__file__).resolve().parent
 DB_FILE = BASE_DIR / "companies.db"
 BASE_URL = "https://api.company-information.service.gov.uk"
 
-COMPANIES_HOUSE_API_KEY = os.getenv("COMPANIES_HOUSE_API_KEY", "109c448e-0d41-4f59-8651-2eab715f81fa").strip()
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8751754421:AAHN2ta1wD-1LAGKf7Juyao2ggmKVqkwqlI").strip()
-SECRET_KEY = os.getenv("SECRET_KEY", "super-secret-uk-company-radar-key-change-in-prod")
+COMPANIES_HOUSE_API_KEY = os.getenv("COMPANIES_HOUSE_API_KEY", "").strip()
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+SECRET_KEY = os.getenv("SECRET_KEY", "").strip()
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+DEBUG_MODE = os.getenv("DEBUG", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 ADMIN_EMAILS = [os.getenv("ADMIN_EMAIL", "ayhan.hakyemez@gmail.com").strip().lower()]
 
@@ -618,7 +619,14 @@ async def register(
         send_telegram_sync(chat_id_clean, reg_msg)
     
     response = RedirectResponse(url="/", status_code=303)
-    response.set_cookie("session_id", session_id, max_age=30 * 86400, httponly=True, secure=True, samesite="lax")
+    response.set_cookie(
+        "session_id",
+        session_id,
+        max_age=30 * 86400,
+        httponly=True,
+        secure=not DEBUG_MODE,
+        samesite="lax",
+    )
     return response
 
 @app.post("/auth/login")
@@ -645,7 +653,14 @@ async def login(request: Request, email: str = Form(...), password: str = Form(.
     conn.close()
     
     response = RedirectResponse(url="/", status_code=303)
-    response.set_cookie("session_id", session_id, max_age=30 * 86400, httponly=True, secure=True, samesite="lax")
+    response.set_cookie(
+        "session_id",
+        session_id,
+        max_age=30 * 86400,
+        httponly=True,
+        secure=not DEBUG_MODE,
+        samesite="lax",
+    )
     return response
 
 @app.get("/auth/logout")
