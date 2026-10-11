@@ -23,6 +23,7 @@ BASE_URL = "https://api.company-information.service.gov.uk"
 COMPANIES_HOUSE_API_KEY = os.getenv("COMPANIES_HOUSE_API_KEY", "109c448e-0d41-4f59-8651-2eab715f81fa").strip()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8751754421:AAHN2ta1wD-1LAGKf7Juyao2ggmKVqkwqlI").strip()
 SECRET_KEY = os.getenv("SECRET_KEY", "super-secret-uk-company-radar-key-change-in-prod")
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 
 ADMIN_EMAILS = [os.getenv("ADMIN_EMAIL", "ayhan.hakyemez@gmail.com").strip().lower()]
 
@@ -30,72 +31,116 @@ app = FastAPI(title="UK Company Radar")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 # ---------------------------------------------------------
-# VERİTABANI YÖNETİMİ
+# VERİTABANI YÖNETİMİ (POSTGRESQL / SQLITE HİBRİT)
 # ---------------------------------------------------------
+USE_PG = bool(DATABASE_URL)
+if USE_PG:
+    import psycopg2
+    import psycopg2.extras
+    if DATABASE_URL.startswith("postgres://"):
+        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
 def get_db():
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
-    return conn
+    if USE_PG:
+        conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+        return conn
+    else:
+        conn = sqlite3.connect(DB_FILE)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+def format_query(sql: str) -> str:
+    if USE_PG:
+        return sql.replace("?", "%s")
+    return sql
 
 def init_db():
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            telegram_chat_id TEXT,
-            is_pro INTEGER DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS watchlist (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            company_number TEXT NOT NULL,
-            company_name TEXT NOT NULL,
-            status TEXT NOT NULL,
-            type TEXT,
-            jurisdiction TEXT,
-            last_filing_date TEXT,
-            last_filing_description TEXT,
-            last_filing_category TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users (id),
-            UNIQUE(user_id, company_number)
-        )
-    """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS search_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            identifier TEXT NOT NULL,
-            search_date DATE NOT NULL,
-            count INTEGER DEFAULT 1,
-            UNIQUE(identifier, search_date)
-        )
-    """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS sessions (
-            session_id TEXT PRIMARY KEY,
-            user_id INTEGER NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users (id)
-        )
-    """)
-    conn.commit()
+    if USE_PG:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                telegram_chat_id TEXT,
+                is_pro INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS watchlist (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                company_number TEXT NOT NULL,
+                company_name TEXT NOT NULL,
+                status TEXT NOT NULL,
+                type TEXT,
+                jurisdiction TEXT,
+                last_filing_date TEXT,
+                last_filing_description TEXT,
+                last_filing_category TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, company_number)
+            );
+            CREATE TABLE IF NOT EXISTS search_logs (
+                id SERIAL PRIMARY KEY,
+                identifier TEXT NOT NULL,
+                search_date DATE NOT NULL,
+                count INTEGER DEFAULT 1,
+                UNIQUE(identifier, search_date)
+            );
+            CREATE TABLE IF NOT EXISTS sessions (
+                session_id TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+    else:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                telegram_chat_id TEXT,
+                is_pro INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS watchlist (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                company_number TEXT NOT NULL,
+                company_name TEXT NOT NULL,
+                status TEXT NOT NULL,
+                type TEXT,
+                jurisdiction TEXT,
+                last_filing_date TEXT,
+                last_filing_description TEXT,
+                last_filing_category TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id),
+                UNIQUE(user_id, company_number)
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS search_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                identifier TEXT NOT NULL,
+                search_date DATE NOT NULL,
+                count INTEGER DEFAULT 1,
+                UNIQUE(identifier, search_date)
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                session_id TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id)
+            )
+        """)
+        cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_watchlist_user_company ON watchlist(user_id, company_number)")
 
-    cursor.execute("PRAGMA table_info(watchlist)")
-    columns = {row[1] for row in cursor.fetchall()}
-    if "last_filing_date" not in columns:
-        cursor.execute("ALTER TABLE watchlist ADD COLUMN last_filing_date TEXT")
-    if "last_filing_description" not in columns:
-        cursor.execute("ALTER TABLE watchlist ADD COLUMN last_filing_description TEXT")
-    if "last_filing_category" not in columns:
-        cursor.execute("ALTER TABLE watchlist ADD COLUMN last_filing_category TEXT")
-
-    cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_watchlist_user_company ON watchlist(user_id, company_number)")
     conn.commit()
     conn.close()
 
@@ -133,17 +178,15 @@ def send_telegram_sync(chat_id: str, message: str):
         print(f"[Telegram Alert Error]: {e}")
 
 # ---------------------------------------------------------
-# KULLANICI & KOTA
+# YARDIMCI METODLAR & KULLANICI
 # ---------------------------------------------------------
 def normalize_company_number(value: str) -> str:
     return (value or "").strip().upper().replace(" ", "")
-
 
 def is_valid_telegram_chat_id(chat_id: str) -> bool:
     if chat_id is None:
         return False
     return bool(re.fullmatch(r"-?\d{6,20}", str(chat_id).strip()))
-
 
 def get_current_user(request: Request):
     session_id = request.cookies.get("session_id")
@@ -151,12 +194,13 @@ def get_current_user(request: Request):
         return None
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("""
+    query = format_query("""
         SELECT u.id, u.email, u.telegram_chat_id, u.is_pro 
         FROM users u 
         JOIN sessions s ON u.id = s.user_id 
         WHERE s.session_id = ?
-    """, (session_id,))
+    """)
+    cursor.execute(query, (session_id,))
     user = cursor.fetchone()
     conn.close()
     
@@ -176,7 +220,8 @@ def get_search_count(identifier: str) -> int:
     today = date.today().isoformat()
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT count FROM search_logs WHERE identifier = ? AND search_date = ?", (identifier, today))
+    query = format_query("SELECT count FROM search_logs WHERE identifier = ? AND search_date = ?")
+    cursor.execute(query, (identifier, today))
     row = cursor.fetchone()
     conn.close()
     return row["count"] if row else 0
@@ -185,11 +230,12 @@ def increment_search_count(identifier: str):
     today = date.today().isoformat()
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("""
+    query = format_query("""
         INSERT INTO search_logs (identifier, search_date, count) 
         VALUES (?, ?, 1)
-        ON CONFLICT(identifier, search_date) DO UPDATE SET count = count + 1
-    """, (identifier, today))
+        ON CONFLICT(identifier, search_date) DO UPDATE SET count = search_logs.count + 1
+    """)
+    cursor.execute(query, (identifier, today))
     conn.commit()
     conn.close()
 
@@ -208,12 +254,9 @@ def search_companies_house(query: str):
         res = requests.get(url, params={"q": cleaned_query}, auth=(COMPANIES_HOUSE_API_KEY, ""), timeout=8)
         if res.status_code == 200:
             return res.json().get("items", [])
-        else:
-            print(f"[Companies House Status]: {res.status_code}")
     except Exception as e:
         print(f"[Companies House Exception]: {e}")
     return []
-
 
 def get_company_profile(company_number: str):
     if not COMPANIES_HOUSE_API_KEY:
@@ -229,7 +272,6 @@ def get_company_profile(company_number: str):
     except Exception as e:
         print(f"[Companies House Profile Exception]: {e}")
     return None
-
 
 def get_latest_filing_update(company_number: str):
     if not COMPANIES_HOUSE_API_KEY:
@@ -294,8 +336,16 @@ async def automated_background_monitor():
 
                 if status_changed or filing_changed:
                     if status_changed:
+                        q_update = format_query("""
+                            UPDATE watchlist 
+                            SET status = ?, 
+                                last_filing_date = COALESCE(?, last_filing_date), 
+                                last_filing_description = COALESCE(?, last_filing_description), 
+                                last_filing_category = COALESCE(?, last_filing_category) 
+                            WHERE id = ?
+                        """)
                         cursor.execute(
-                            "UPDATE watchlist SET status = ?, last_filing_date = COALESCE(?, last_filing_date), last_filing_description = COALESCE(?, last_filing_description), last_filing_category = COALESCE(?, last_filing_category) WHERE id = ?",
+                            q_update,
                             (live_profile.get("company_status", "unknown"), latest_filing_date, latest_filing_description, latest_filing_category, item["id"]),
                         )
                         if item["telegram_chat_id"]:
@@ -318,8 +368,17 @@ async def automated_background_monitor():
                         )
                         send_telegram_sync(item["telegram_chat_id"], filing_msg)
 
+                q_sync = format_query("""
+                    UPDATE watchlist 
+                    SET company_name = ?, 
+                        status = ?, 
+                        last_filing_date = COALESCE(?, last_filing_date), 
+                        last_filing_description = COALESCE(?, last_filing_description), 
+                        last_filing_category = COALESCE(?, last_filing_category) 
+                    WHERE id = ?
+                """)
                 cursor.execute(
-                    "UPDATE watchlist SET company_name = ?, status = ?, last_filing_date = COALESCE(?, last_filing_date), last_filing_description = COALESCE(?, last_filing_description), last_filing_category = COALESCE(?, last_filing_category) WHERE id = ?",
+                    q_sync,
                     (
                         live_profile.get("company_name", item["company_name"]),
                         live_profile.get("company_status", "unknown"),
@@ -380,7 +439,8 @@ async def index(request: Request, q: Optional[str] = None):
     if user:
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM watchlist WHERE user_id = ? ORDER BY created_at DESC", (user["id"],))
+        query = format_query("SELECT * FROM watchlist WHERE user_id = ? ORDER BY created_at DESC")
+        cursor.execute(query, (user["id"],))
         watchlist = cursor.fetchall()
         conn.close()
         
@@ -423,26 +483,26 @@ async def track_company(
 
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute(
-        "SELECT id FROM watchlist WHERE user_id = ? AND company_number = ?",
-        (user["id"], company_number),
-    )
+    q_check = format_query("SELECT id FROM watchlist WHERE user_id = ? AND company_number = ?")
+    cursor.execute(q_check, (user["id"], company_number))
     existing = cursor.fetchone()
     if existing:
         conn.close()
         return RedirectResponse(url="/?already_tracked=1", status_code=303)
 
-    cursor.execute("SELECT COUNT(*) as count FROM watchlist WHERE user_id = ?", (user["id"],))
+    q_count = format_query("SELECT COUNT(*) as count FROM watchlist WHERE user_id = ?")
+    cursor.execute(q_count, (user["id"],))
     count = cursor.fetchone()["count"]
     
     if not user.get("is_pro") and count >= 3:
         conn.close()
         return RedirectResponse(url="/?limit_reached=1", status_code=303)
         
-    cursor.execute("""
+    q_insert = format_query("""
         INSERT INTO watchlist (user_id, company_number, company_name, status, type, jurisdiction, last_filing_date, last_filing_description, last_filing_category)
         VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL)
-    """, (user["id"], company_number, company_name.strip(), status.strip(), type, jurisdiction))
+    """)
+    cursor.execute(q_insert, (user["id"], company_number, company_name.strip(), status.strip(), type, jurisdiction))
     conn.commit()
     conn.close()
     
@@ -465,7 +525,8 @@ async def untrack_company(request: Request, company_id: int = Form(...)):
         
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM watchlist WHERE id = ? AND user_id = ?", (company_id, user["id"]))
+    query = format_query("DELETE FROM watchlist WHERE id = ? AND user_id = ?")
+    cursor.execute(query, (company_id, user["id"]))
     conn.commit()
     conn.close()
     return RedirectResponse(url="/", status_code=303)
@@ -504,7 +565,8 @@ async def register(
     conn = get_db()
     cursor = conn.cursor()
     
-    cursor.execute("SELECT id FROM users WHERE lower(email) = ?", (email_clean,))
+    q_email = format_query("SELECT id FROM users WHERE lower(email) = ?")
+    cursor.execute(q_email, (email_clean,))
     if cursor.fetchone():
         conn.close()
         return templates.TemplateResponse(
@@ -514,7 +576,8 @@ async def register(
         )
         
     if chat_id_clean and (email_clean not in ADMIN_EMAILS):
-        cursor.execute("SELECT id FROM users WHERE telegram_chat_id = ?", (chat_id_clean,))
+        q_tg = format_query("SELECT id FROM users WHERE telegram_chat_id = ?")
+        cursor.execute(q_tg, (chat_id_clean,))
         existing_tg_user = cursor.fetchone()
         if existing_tg_user:
             conn.close()
@@ -527,14 +590,22 @@ async def register(
     pwd_hash = hash_password(password)
     is_pro_val = 1 if email_clean in ADMIN_EMAILS else 0
     
-    cursor.execute("""
-        INSERT INTO users (email, password_hash, telegram_chat_id, is_pro) 
-        VALUES (?, ?, ?, ?)
-    """, (email_clean, pwd_hash, chat_id_clean, is_pro_val))
-    user_id = cursor.lastrowid
+    if USE_PG:
+        cursor.execute("""
+            INSERT INTO users (email, password_hash, telegram_chat_id, is_pro) 
+            VALUES (%s, %s, %s, %s) RETURNING id
+        """, (email_clean, pwd_hash, chat_id_clean, is_pro_val))
+        user_id = cursor.fetchone()["id"]
+    else:
+        cursor.execute("""
+            INSERT INTO users (email, password_hash, telegram_chat_id, is_pro) 
+            VALUES (?, ?, ?, ?)
+        """, (email_clean, pwd_hash, chat_id_clean, is_pro_val))
+        user_id = cursor.lastrowid
     
     session_id = secrets.token_hex(24)
-    cursor.execute("INSERT INTO sessions (session_id, user_id) VALUES (?, ?)", (session_id, user_id))
+    q_session = format_query("INSERT INTO sessions (session_id, user_id) VALUES (?, ?)")
+    cursor.execute(q_session, (session_id, user_id))
     conn.commit()
     conn.close()
     
@@ -555,7 +626,8 @@ async def login(request: Request, email: str = Form(...), password: str = Form(.
     email_clean = email.strip().lower()
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users WHERE lower(email) = ?", (email_clean,))
+    query = format_query("SELECT * FROM users WHERE lower(email) = ?")
+    cursor.execute(query, (email_clean,))
     user = cursor.fetchone()
     
     if not user or not verify_password(user["password_hash"], password):
@@ -567,7 +639,8 @@ async def login(request: Request, email: str = Form(...), password: str = Form(.
         )
         
     session_id = secrets.token_hex(24)
-    cursor.execute("INSERT INTO sessions (session_id, user_id) VALUES (?, ?)", (session_id, user["id"]))
+    q_session = format_query("INSERT INTO sessions (session_id, user_id) VALUES (?, ?)")
+    cursor.execute(q_session, (session_id, user["id"]))
     conn.commit()
     conn.close()
     
@@ -581,7 +654,8 @@ async def logout(request: Request):
     if session_id:
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
+        query = format_query("DELETE FROM sessions WHERE session_id = ?")
+        cursor.execute(query, (session_id,))
         conn.commit()
         conn.close()
         
