@@ -27,7 +27,6 @@
 
             <div class="flex items-center gap-3">
                 {% if user %}
-                    <!-- Kullanıcı Bilgisi ve Rozetler -->
                     <div class="hidden sm:flex items-center gap-2 mr-2">
                         {% if user.is_admin %}
                             <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
@@ -45,7 +44,6 @@
                         <span class="text-xs text-slate-500 font-medium">{{ user.email }}</span>
                     </div>
 
-                    <!-- Canlı Radar Durum Rozeti (Otomatik arka plan kontrolü) -->
                     <div class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold">
                         <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                         Radar Active
@@ -68,7 +66,7 @@
 
     <main class="max-w-6xl mx-auto px-4 py-8 flex-1 w-full space-y-6">
 
-        <!-- KRİTİK: TELEGRAM BOT AKTİVASYON BİLDİRİM KARTİ (KULLANICININ ASLA KAÇIRMAYACAĞI ALAN) -->
+        <!-- TELEGRAM BOT AKTİVASYON BİLDİRİM KARTI -->
         {% if user %}
         <div class="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-4 sm:p-5 rounded-2xl shadow-sm border border-indigo-900 flex flex-col md:flex-row items-center justify-between gap-4">
             <div class="flex items-center gap-3.5 text-left w-full md:w-auto">
@@ -85,7 +83,8 @@
                     </p>
                 </div>
             </div>
-            <a href="https://t.me/BOT_KULLANICI_ADINIZ" target="_blank" class="w-full md:w-auto text-center whitespace-nowrap bg-indigo-500 hover:bg-indigo-600 text-white font-bold text-xs py-2.5 px-5 rounded-xl shadow transition">
+            <!-- BOT KULLANICI ADINIZI BURAYA YAZIN -->
+            <a href="https://t.me/YOUR_BOT_USERNAME" target="_blank" class="w-full md:w-auto text-center whitespace-nowrap bg-indigo-500 hover:bg-indigo-600 text-white font-bold text-xs py-2.5 px-5 rounded-xl shadow transition">
                 Open Bot & Tap Start →
             </a>
         </div>
@@ -100,7 +99,7 @@
                     You have reached your daily search capacity. Resets at midnight UTC, or upgrade to Pro for unlimited instant lookups.
                 </p>
             </div>
-            <a href="https://buy.stripe.com/SIZIN_ODEME_LINKINIZ" target="_blank" class="inline-flex justify-center items-center whitespace-nowrap bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs py-2.5 px-5 rounded-xl shadow-sm transition">
+            <a href="https://buy.stripe.com/test_link" target="_blank" class="inline-flex justify-center items-center whitespace-nowrap bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs py-2.5 px-5 rounded-xl shadow-sm transition">
                 Unlock Unlimited Searches (£29/mo) →
             </a>
         </div>
@@ -114,7 +113,7 @@
                     Free accounts can track up to 3 UK entities. Upgrade to Pro for unlimited entity tracking and continuous automated audits.
                 </p>
             </div>
-            <a href="https://buy.stripe.com/SIZIN_ODEME_LINKINIZ" target="_blank" class="inline-flex justify-center items-center whitespace-nowrap bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-2.5 px-5 rounded-xl shadow-sm transition">
+            <a href="https://buy.stripe.com/test_link" target="_blank" class="inline-flex justify-center items-center whitespace-nowrap bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-2.5 px-5 rounded-xl shadow-sm transition">
                 Upgrade to Pro (£29/mo) →
             </a>
         </div>
@@ -259,6 +258,31 @@
             {% endif %}
         </section>
         {% endif %}
+
+        <!-- GERİ GETİRİLEN 3 ÖZELLİK KARTI (SAYFA ALTI AÇIKLAMALARI) -->
+        <section class="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">
+            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                <div class="text-2xl mb-2">⚡</div>
+                <h4 class="font-bold text-sm text-slate-900 mb-1">Official Registry Sync</h4>
+                <p class="text-xs text-slate-500 leading-relaxed">
+                    Direct integration with UK Companies House registers. Continuously verifies incorporation status, director changes, and official filings.
+                </p>
+            </div>
+            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                <div class="text-2xl mb-2">🚨</div>
+                <h4 class="font-bold text-sm text-slate-900 mb-1">Insolvency & Risk Radar</h4>
+                <p class="text-xs text-slate-500 leading-relaxed">
+                    Early detection for winding-up petitions, administration notices, and dissolution filings before they impact your cash flow and supply chain.
+                </p>
+            </div>
+            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                <div class="text-2xl mb-2">📲</div>
+                <h4 class="font-bold text-sm text-slate-900 mb-1">Real-Time Dispatch</h4>
+                <p class="text-xs text-slate-500 leading-relaxed">
+                    Receive automated alerts instantly via Telegram and email whenever a tracked entity changes legal standing.
+                </p>
+            </div>
+        </section>
 
     </main>
 
