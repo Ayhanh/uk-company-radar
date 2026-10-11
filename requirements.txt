@@ -4,4 +4,3 @@ jinja2
 requests
 itsdangerous
 python-multipart
-httpx

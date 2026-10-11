@@ -1,4 +1,5 @@
 import os
+import re
 import sqlite3
 import hashlib
 import secrets
@@ -58,8 +59,12 @@ def init_db():
             status TEXT NOT NULL,
             type TEXT,
             jurisdiction TEXT,
+            last_filing_date TEXT,
+            last_filing_description TEXT,
+            last_filing_category TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users (id)
+            FOREIGN KEY (user_id) REFERENCES users (id),
+            UNIQUE(user_id, company_number)
         )
     """)
     cursor.execute("""
@@ -79,6 +84,18 @@ def init_db():
             FOREIGN KEY (user_id) REFERENCES users (id)
         )
     """)
+    conn.commit()
+
+    cursor.execute("PRAGMA table_info(watchlist)")
+    columns = {row[1] for row in cursor.fetchall()}
+    if "last_filing_date" not in columns:
+        cursor.execute("ALTER TABLE watchlist ADD COLUMN last_filing_date TEXT")
+    if "last_filing_description" not in columns:
+        cursor.execute("ALTER TABLE watchlist ADD COLUMN last_filing_description TEXT")
+    if "last_filing_category" not in columns:
+        cursor.execute("ALTER TABLE watchlist ADD COLUMN last_filing_category TEXT")
+
+    cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_watchlist_user_company ON watchlist(user_id, company_number)")
     conn.commit()
     conn.close()
 
@@ -118,6 +135,16 @@ def send_telegram_sync(chat_id: str, message: str):
 # ---------------------------------------------------------
 # KULLANICI & KOTA
 # ---------------------------------------------------------
+def normalize_company_number(value: str) -> str:
+    return (value or "").strip().upper().replace(" ", "")
+
+
+def is_valid_telegram_chat_id(chat_id: str) -> bool:
+    if chat_id is None:
+        return False
+    return bool(re.fullmatch(r"-?\d{6,20}", str(chat_id).strip()))
+
+
 def get_current_user(request: Request):
     session_id = request.cookies.get("session_id")
     if not session_id:
@@ -173,9 +200,12 @@ def search_companies_house(query: str):
     if not COMPANIES_HOUSE_API_KEY:
         print("[Companies House Error]: Key missing!")
         return []
-    url = f"{BASE_URL}/search/companies?q={query}"
+    cleaned_query = (query or "").strip()
+    if not cleaned_query:
+        return []
+    url = f"{BASE_URL}/search/companies"
     try:
-        res = requests.get(url, auth=(COMPANIES_HOUSE_API_KEY, ""), timeout=8)
+        res = requests.get(url, params={"q": cleaned_query}, auth=(COMPANIES_HOUSE_API_KEY, ""), timeout=8)
         if res.status_code == 200:
             return res.json().get("items", [])
         else:
@@ -184,10 +214,14 @@ def search_companies_house(query: str):
         print(f"[Companies House Exception]: {e}")
     return []
 
+
 def get_company_profile(company_number: str):
     if not COMPANIES_HOUSE_API_KEY:
         return None
-    url = f"{BASE_URL}/company/{company_number}"
+    normalized_number = normalize_company_number(company_number)
+    if not normalized_number:
+        return None
+    url = f"{BASE_URL}/company/{normalized_number}"
     try:
         res = requests.get(url, auth=(COMPANIES_HOUSE_API_KEY, ""), timeout=8)
         if res.status_code == 200:
@@ -195,6 +229,31 @@ def get_company_profile(company_number: str):
     except Exception as e:
         print(f"[Companies House Profile Exception]: {e}")
     return None
+
+
+def get_latest_filing_update(company_number: str):
+    if not COMPANIES_HOUSE_API_KEY:
+        return None, None, None
+    normalized_number = normalize_company_number(company_number)
+    if not normalized_number:
+        return None, None, None
+    url = f"{BASE_URL}/company/{normalized_number}/filing-history?items_per_page=1"
+    try:
+        res = requests.get(url, auth=(COMPANIES_HOUSE_API_KEY, ""), timeout=8)
+        if res.status_code != 200:
+            return None, None, None
+        items = res.json().get("items", [])
+        if not items:
+            return None, None, None
+        item = items[0]
+        return (
+            item.get("date"),
+            item.get("description", ""),
+            item.get("category", "")
+        )
+    except Exception as e:
+        print(f"[Companies House Filing Exception]: {e}")
+        return None, None, None
 
 # ---------------------------------------------------------
 # ARKA PLAN GÖREVİ
@@ -206,22 +265,39 @@ async def automated_background_monitor():
             conn = get_db()
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT w.id, w.company_number, w.company_name, w.status, u.telegram_chat_id 
-                FROM watchlist w 
+                SELECT w.id, w.user_id, w.company_number, w.company_name, w.status, w.last_filing_date,
+                       w.last_filing_description, w.last_filing_category, u.telegram_chat_id
+                FROM watchlist w
                 JOIN users u ON w.user_id = u.id
             """)
             items = cursor.fetchall()
-            
+
             for item in items:
                 live_profile = get_company_profile(item["company_number"])
-                if live_profile:
-                    new_status = live_profile.get("company_status", "unknown")
-                    old_status = item["status"]
-                    
-                    if new_status.lower() != old_status.lower():
-                        cursor.execute("UPDATE watchlist SET status = ? WHERE id = ?", (new_status, item["id"]))
-                        conn.commit()
-                        
+                if not live_profile:
+                    continue
+
+                new_status = (live_profile.get("company_status") or "unknown").lower()
+                old_status = (item["status"] or "unknown").lower()
+                latest_filing_date, latest_filing_description, latest_filing_category = get_latest_filing_update(item["company_number"])
+
+                status_changed = old_status != new_status
+                filing_changed = (
+                    latest_filing_date is not None
+                    and latest_filing_date != item["last_filing_date"]
+                    and (
+                        "insolvency" in (latest_filing_category or "").lower()
+                        or "gazette" in (latest_filing_category or "").lower()
+                        or "liquidation" in (latest_filing_description or "").lower()
+                    )
+                )
+
+                if status_changed or filing_changed:
+                    if status_changed:
+                        cursor.execute(
+                            "UPDATE watchlist SET status = ?, last_filing_date = COALESCE(?, last_filing_date), last_filing_description = COALESCE(?, last_filing_description), last_filing_category = COALESCE(?, last_filing_category) WHERE id = ?",
+                            (live_profile.get("company_status", "unknown"), latest_filing_date, latest_filing_description, latest_filing_category, item["id"]),
+                        )
                         if item["telegram_chat_id"]:
                             alert_msg = (
                                 f"🚨 <b>CRITICAL RISK ALERT: STATUS CHANGE DETECTED</b>\n\n"
@@ -231,6 +307,30 @@ async def automated_background_monitor():
                                 f"<i>Immediate attention recommended. Check official Companies House filing.</i>"
                             )
                             send_telegram_sync(item["telegram_chat_id"], alert_msg)
+                    if filing_changed and item["telegram_chat_id"]:
+                        filing_msg = (
+                            f"🚨 <b>INSOLVENCY / GAZETTE ALERT</b>\n\n"
+                            f"<b>Company:</b> {item['company_name']} ({item['company_number']})\n"
+                            f"<b>Latest filing:</b> {latest_filing_description or 'No description'}\n"
+                            f"<b>Category:</b> {latest_filing_category or 'Unknown'}\n"
+                            f"<b>Date:</b> {latest_filing_date}\n\n"
+                            f"<i>New official notice detected in Companies House filing history.</i>"
+                        )
+                        send_telegram_sync(item["telegram_chat_id"], filing_msg)
+
+                cursor.execute(
+                    "UPDATE watchlist SET company_name = ?, status = ?, last_filing_date = COALESCE(?, last_filing_date), last_filing_description = COALESCE(?, last_filing_description), last_filing_category = COALESCE(?, last_filing_category) WHERE id = ?",
+                    (
+                        live_profile.get("company_name", item["company_name"]),
+                        live_profile.get("company_status", "unknown"),
+                        latest_filing_date,
+                        latest_filing_description,
+                        latest_filing_category,
+                        item["id"],
+                    ),
+                )
+
+            conn.commit()
             conn.close()
         except Exception as e:
             print(f"[Background Monitor Error]: {e}")
@@ -309,16 +409,29 @@ async def track_company(
     request: Request, 
     company_number: str = Form(...), 
     company_name: str = Form(...), 
-    status: str = Form(..., alias="status"),
+    status: str = Form(...),
     type: str = Form(None),
     jurisdiction: str = Form(None)
 ):
     user = get_current_user(request)
     if not user:
         return RedirectResponse(url="/auth", status_code=303)
-        
+
+    company_number = normalize_company_number(company_number)
+    if not company_number or not re.fullmatch(r"[A-Z0-9]{6,10}", company_number):
+        return RedirectResponse(url="/?invalid_company=1", status_code=303)
+
     conn = get_db()
     cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id FROM watchlist WHERE user_id = ? AND company_number = ?",
+        (user["id"], company_number),
+    )
+    existing = cursor.fetchone()
+    if existing:
+        conn.close()
+        return RedirectResponse(url="/?already_tracked=1", status_code=303)
+
     cursor.execute("SELECT COUNT(*) as count FROM watchlist WHERE user_id = ?", (user["id"],))
     count = cursor.fetchone()["count"]
     
@@ -327,18 +440,17 @@ async def track_company(
         return RedirectResponse(url="/?limit_reached=1", status_code=303)
         
     cursor.execute("""
-        INSERT INTO watchlist (user_id, company_number, company_name, status, type, jurisdiction)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (user["id"], company_number, company_name, status, type, jurisdiction))
+        INSERT INTO watchlist (user_id, company_number, company_name, status, type, jurisdiction, last_filing_date, last_filing_description, last_filing_category)
+        VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL)
+    """, (user["id"], company_number, company_name.strip(), status.strip(), type, jurisdiction))
     conn.commit()
     conn.close()
     
-    # Telegram Anlık Bildirimi
     if user.get("telegram_chat_id"):
         welcome_alert = (
             f"🛡️ <b>UK Company Radar | Monitoring Active</b>\n\n"
-            f"<b>Company:</b> {company_name} ({company_number})\n"
-            f"<b>Current Legal Status:</b> {status.upper()}\n\n"
+            f"<b>Company:</b> {company_name.strip()} ({company_number})\n"
+            f"<b>Current Legal Status:</b> {status.strip().upper()}\n\n"
             f"✅ <i>24/7 automated insolvency monitoring is now active. You will receive an instant notification here if this entity enters liquidation, administration, or strike-off.</i>"
         )
         send_telegram_sync(user["telegram_chat_id"], welcome_alert)
@@ -381,7 +493,14 @@ async def register(
 ):
     email_clean = email.strip().lower()
     chat_id_clean = telegram_chat_id.strip() if telegram_chat_id else None
-    
+
+    if chat_id_clean and not is_valid_telegram_chat_id(chat_id_clean):
+        return templates.TemplateResponse(
+            request=request,
+            name="auth.html",
+            context={"error": "Telegram Chat ID must be a valid numeric ID."}
+        )
+
     conn = get_db()
     cursor = conn.cursor()
     
@@ -428,7 +547,7 @@ async def register(
         send_telegram_sync(chat_id_clean, reg_msg)
     
     response = RedirectResponse(url="/", status_code=303)
-    response.set_cookie("session_id", session_id, max_age=30*86400, httponly=True)
+    response.set_cookie("session_id", session_id, max_age=30 * 86400, httponly=True, secure=True, samesite="lax")
     return response
 
 @app.post("/auth/login")
@@ -453,7 +572,7 @@ async def login(request: Request, email: str = Form(...), password: str = Form(.
     conn.close()
     
     response = RedirectResponse(url="/", status_code=303)
-    response.set_cookie("session_id", session_id, max_age=30*86400, httponly=True)
+    response.set_cookie("session_id", session_id, max_age=30 * 86400, httponly=True, secure=True, samesite="lax")
     return response
 
 @app.get("/auth/logout")
@@ -467,5 +586,5 @@ async def logout(request: Request):
         conn.close()
         
     response = RedirectResponse(url="/", status_code=303)
-    response.delete_cookie("session_id")
+    response.delete_cookie("session_id", path="/", samesite="lax")
     return response
