@@ -1092,3 +1092,11 @@ async def logout(request: Request):
     response = RedirectResponse(url="/", status_code=303)
     response.delete_cookie("session_id", path="/", samesite="lax")
     return response
+@app.get("/insights/glens-of-antrim-administration", response_class=HTMLResponse)
+async def glens_case_study(request: Request):
+    user = get_current_user(request)
+    return templates.TemplateResponse(
+        request=request,
+        name="case_study_glens.html",
+        context={"user": user}
+    )
