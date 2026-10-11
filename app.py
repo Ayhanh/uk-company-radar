@@ -3,32 +3,37 @@ import sqlite3
 import hashlib
 import secrets
 import asyncio
+from pathlib import Path
 from datetime import date
 from typing import Optional
 
 import requests
-import httpx
 from fastapi import FastAPI, Request, Form, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 # ---------------------------------------------------------
-# KONFIGURASYON & CEVRE DEGISKENLERI
+# KONFIGURASYON & SABİT DEĞİŞKENLER
 # ---------------------------------------------------------
-COMPANIES_HOUSE_API_KEY = os.getenv("COMPANIES_HOUSE_API_KEY", "").strip()
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+BASE_DIR = Path(__file__).resolve().parent
+DB_FILE = BASE_DIR / "companies.db"
+BASE_URL = "https://api.company-information.service.gov.uk"
+
+# Ortam değişkeni yoksa doğrudan sizin anahtarlarınızı kullanır:
+COMPANIES_HOUSE_API_KEY = os.getenv("COMPANIES_HOUSE_API_KEY", "109c448e-0d41-4f59-8651-2eab715f81fa").strip()
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8751754421:AAHN2ta1wD-1LAGKf7Juyao2ggmKVqkwqlI").strip()
+SECRET_KEY = os.getenv("SECRET_KEY", "super-secret-uk-company-radar-key-change-in-prod")
+
 ADMIN_EMAILS = [os.getenv("ADMIN_EMAIL", "ayhan.hakyemez@gmail.com").strip().lower()]
 
-DB_NAME = "companies.db"
-
 app = FastAPI(title="UK Company Radar")
-templates = Jinja2Templates(directory="templates")
+templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 # ---------------------------------------------------------
-# VERITABANI
+# VERİTABANI YÖNETİMİ
 # ---------------------------------------------------------
 def get_db():
-    conn = sqlite3.connect(DB_NAME)
+    conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -79,7 +84,7 @@ def init_db():
     conn.close()
 
 # ---------------------------------------------------------
-# SIFRELEME
+# ŞİFRELEME
 # ---------------------------------------------------------
 def hash_password(password: str) -> str:
     salt = secrets.token_hex(16)
@@ -95,7 +100,7 @@ def verify_password(stored_hash: str, password: str) -> bool:
         return False
 
 # ---------------------------------------------------------
-# TELEGRAM BILDIRIM
+# TELEGRAM BİLDİRİM
 # ---------------------------------------------------------
 def send_telegram_sync(chat_id: str, message: str):
     if not chat_id or not TELEGRAM_BOT_TOKEN:
@@ -163,34 +168,37 @@ def increment_search_count(identifier: str):
     conn.close()
 
 # ---------------------------------------------------------
-# COMPANIES HOUSE API (YARIM SAAT ÖNCE ÇALIŞAN ORİJİNAL REQUESTS YAPISI)
+# COMPANIES HOUSE API
 # ---------------------------------------------------------
 def search_companies_house(query: str):
     if not COMPANIES_HOUSE_API_KEY:
+        print("[Companies House Error]: Key missing!")
         return []
-    url = f"https://api.company-information.service.gov.uk/search/companies?q={query}"
+    url = f"{BASE_URL}/search/companies?q={query}"
     try:
         res = requests.get(url, auth=(COMPANIES_HOUSE_API_KEY, ""), timeout=8)
         if res.status_code == 200:
             return res.json().get("items", [])
+        else:
+            print(f"[Companies House Status]: {res.status_code}")
     except Exception as e:
-        print(f"[Companies House Error]: {e}")
+        print(f"[Companies House Exception]: {e}")
     return []
 
 def get_company_profile(company_number: str):
     if not COMPANIES_HOUSE_API_KEY:
         return None
-    url = f"https://api.company-information.service.gov.uk/company/{company_number}"
+    url = f"{BASE_URL}/company/{company_number}"
     try:
         res = requests.get(url, auth=(COMPANIES_HOUSE_API_KEY, ""), timeout=8)
         if res.status_code == 200:
             return res.json()
     except Exception as e:
-        print(f"[Companies House Profile Error]: {e}")
+        print(f"[Companies House Profile Exception]: {e}")
     return None
 
 # ---------------------------------------------------------
-# OTOMATIK ARKA PLAN IZLEME
+# ARKA PLAN GÖREVİ
 # ---------------------------------------------------------
 async def automated_background_monitor():
     while True:
@@ -326,7 +334,7 @@ async def track_company(
     conn.commit()
     conn.close()
     
-    # Anlık Telegram Bildirimi
+    # Telegram Bildirimi Gönder
     if user.get("telegram_chat_id"):
         welcome_alert = (
             f"🛡️ <b>UK Company Radar | Monitoring Active</b>\n\n"
