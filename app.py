@@ -14,6 +14,7 @@ from typing import Optional
 from dotenv import load_dotenv
 from fastapi import FastAPI, Form, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import requests
 import sqlite3
@@ -54,7 +55,13 @@ ADMIN_EMAILS = [
     os.getenv("ADMIN_EMAIL", "ayhan.hakyemez@gmail.com").strip().lower()
 ]
 
+# FastAPI Başlatma & Statik Klasör Bağlama
 app = FastAPI(title="UK Company Radar")
+
+static_dir = BASE_DIR / "static"
+static_dir.mkdir(exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 # ---------------------------------------------------------
@@ -993,7 +1000,6 @@ async def reset_password_page(request: Request, token: Optional[str] = None):
             context={"error": "Invalid or expired reset token.", "message": None, "initial_tab": "login"},
         )
 
-    # Süre kontrolü
     expires_at = record["expires_at"]
     if isinstance(expires_at, str):
         expires_at = datetime.fromisoformat(expires_at)
@@ -1050,14 +1056,12 @@ async def reset_password_submit(
     user_id = record["user_id"]
     new_pwd_hash = hash_password(password)
 
-    # Şifreyi güncelle ve kullanılan token'ı sil
     q_upd = format_query("UPDATE users SET password_hash = ? WHERE id = ?")
     cursor.execute(q_upd, (new_pwd_hash, user_id))
 
     q_del = format_query("DELETE FROM password_resets WHERE user_id = ?")
     cursor.execute(q_del, (user_id,))
 
-    # Doğrudan oturum aç
     session_id = secrets.token_hex(24)
     q_session = format_query(
         "INSERT INTO sessions (session_id, user_id) VALUES (?, ?)"
@@ -1092,6 +1096,11 @@ async def logout(request: Request):
     response = RedirectResponse(url="/", status_code=303)
     response.delete_cookie("session_id", path="/", samesite="lax")
     return response
+
+
+# ---------------------------------------------------------
+# CASE STUDY & ADMIN ROTALARI
+# ---------------------------------------------------------
 @app.get("/insights/glens-of-antrim-administration", response_class=HTMLResponse)
 async def glens_case_study(request: Request):
     user = get_current_user(request)
@@ -1100,3 +1109,82 @@ async def glens_case_study(request: Request):
         name="case_study_glens.html",
         context={"user": user}
     )
+
+
+@app.get("/admin/users", response_class=HTMLResponse)
+async def admin_users_dashboard(request: Request):
+    user = get_current_user(request)
+    if not user or not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Forbidden: Admin access only.")
+
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT u.id, u.email, u.telegram_chat_id, u.is_pro, u.created_at,
+               COUNT(w.id) as tracked_count
+        FROM users u
+        LEFT JOIN watchlist w ON u.id = w.user_id
+        GROUP BY u.id, u.email, u.telegram_chat_id, u.is_pro, u.created_at
+        ORDER BY u.created_at DESC
+    """)
+    users_list = cursor.fetchall()
+    conn.close()
+
+    rows_html = ""
+    for u in users_list:
+        pro_badge = '<span style="background: #10b981; color: white; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: bold;">PRO</span>' if u["is_pro"] else '<span style="background: #94a3b8; color: white; padding: 2px 8px; border-radius: 9999px; font-size: 11px;">FREE</span>'
+        tg_info = u['telegram_chat_id'] if u['telegram_chat_id'] else '<span style="color: #94a3b8;">-</span>'
+        created = str(u['created_at'])[:16] if u['created_at'] else '-'
+        rows_html += f"""
+        <tr style="border-bottom: 1px solid #e2e8f0;">
+            <td style="padding: 12px 16px; font-size: 14px; font-family: monospace;">#{u['id']}</td>
+            <td style="padding: 12px 16px; font-size: 14px; font-weight: 500;">{u['email']}</td>
+            <td style="padding: 12px 16px; font-size: 14px;">{pro_badge}</td>
+            <td style="padding: 12px 16px; font-size: 14px;">{tg_info}</td>
+            <td style="padding: 12px 16px; font-size: 14px; font-weight: 600;">{u['tracked_count']}</td>
+            <td style="padding: 12px 16px; font-size: 13px; color: #64748b;">{created}</td>
+        </tr>
+        """
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Admin - User Monitoring | UK Company Radar</title>
+        <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <script src="https://cdn.tailwindcss.com"></script>
+    </head>
+    <body class="bg-slate-50 text-slate-800 p-6 md:p-10 font-sans">
+        <div class="max-w-5xl mx-auto">
+            <div class="flex items-center justify-between mb-8 pb-4 border-b border-slate-200">
+                <div>
+                    <h1 class="text-2xl font-bold text-slate-900">Registered Users Monitoring</h1>
+                    <p class="text-sm text-slate-500 mt-1">Total registered accounts: <strong class="text-slate-800">{len(users_list)}</strong></p>
+                </div>
+                <a href="/" class="text-sm font-medium text-blue-600 hover:text-blue-700 bg-white px-4 py-2 rounded-lg border border-slate-200 shadow-sm">&larr; Back to App</a>
+            </div>
+
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-slate-100 text-xs uppercase tracking-wider text-slate-500 font-semibold border-bottom border-slate-200">
+                            <th class="py-3 px-4">ID</th>
+                            <th class="py-3 px-4">Email</th>
+                            <th class="py-3 px-4">Plan</th>
+                            <th class="py-3 px-4">Telegram ID</th>
+                            <th class="py-3 px-4">Tracked Co.</th>
+                            <th class="py-3 px-4">Joined Date</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rows_html}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
