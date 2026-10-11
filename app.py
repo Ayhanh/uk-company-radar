@@ -424,6 +424,34 @@ def get_latest_filing_update(company_number: str):
     return None, None, None
 
 
+def get_company_officers(company_number: str):
+    if not COMPANIES_HOUSE_API_KEY:
+        return []
+    normalized_number = normalize_company_number(company_number)
+    url = f"{BASE_URL}/company/{normalized_number}/officers"
+    try:
+        res = requests.get(url, auth=(COMPANIES_HOUSE_API_KEY, ""), timeout=8)
+        if res.status_code == 200:
+            return res.json().get("items", [])
+    except Exception as e:
+        print(f"[Companies House Officers Error]: {e}")
+    return []
+
+
+def get_company_charges(company_number: str):
+    if not COMPANIES_HOUSE_API_KEY:
+        return []
+    normalized_number = normalize_company_number(company_number)
+    url = f"{BASE_URL}/company/{normalized_number}/charges"
+    try:
+        res = requests.get(url, auth=(COMPANIES_HOUSE_API_KEY, ""), timeout=8)
+        if res.status_code == 200:
+            return res.json().get("items", [])
+    except Exception as e:
+        print(f"[Companies House Charges Error]: {e}")
+    return []
+
+
 # ---------------------------------------------------------
 # ARKA PLAN GÖREVİ
 # ---------------------------------------------------------
@@ -1099,7 +1127,7 @@ async def logout(request: Request):
 
 
 # ---------------------------------------------------------
-# CASE STUDY & ADMIN ROTALARI
+# CASE STUDY, DETAY APISI & ADMIN ROTALARI
 # ---------------------------------------------------------
 @app.get("/insights/glens-of-antrim-administration", response_class=HTMLResponse)
 async def glens_case_study(request: Request):
@@ -1109,6 +1137,27 @@ async def glens_case_study(request: Request):
         name="case_study_glens.html",
         context={"user": user}
     )
+
+
+@app.get("/api/company/{company_number}/details")
+async def company_details_api(request: Request, company_number: str):
+    user = get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    profile = get_company_profile(company_number)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Company profile not found")
+
+    officers = get_company_officers(company_number)
+    charges = get_company_charges(company_number)
+
+    return {
+        "profile": profile,
+        "officers": officers[:8],
+        "charges": charges[:8],
+        "total_charges": len(charges),
+    }
 
 
 @app.get("/admin/users", response_class=HTMLResponse)
