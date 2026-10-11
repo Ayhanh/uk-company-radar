@@ -3,86 +3,128 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ "Sign In" if mode == "login" else "Create Account" }} | UK Company Radar</title>
+    <title>Authentication - UK Company Radar</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+    </style>
 </head>
-<body class="bg-slate-50 text-slate-800 min-h-screen flex items-center justify-center p-4">
+<body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col justify-center py-12 sm:px-6 lg:px-8">
 
-    <div class="max-w-md w-full bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
-        <div class="flex items-center space-x-3 mb-6">
+    <div class="sm:mx-auto sm:w-full sm:max-w-md text-center">
+        <a href="/" class="inline-flex items-center gap-2 mb-2">
             <span class="text-3xl">🛡️</span>
-            <div>
-                <h1 class="text-xl font-bold text-slate-900 tracking-tight">UK Company Radar</h1>
-                <p class="text-xs text-slate-500 font-medium">B2B Corporate Status & Risk Monitor</p>
-            </div>
-        </div>
+            <span class="text-2xl font-bold tracking-tight text-slate-900">UK Company Radar</span>
+        </a>
+        <h2 class="text-sm font-medium text-slate-500">Access Insolvency & Entity Radar Intelligence</h2>
+    </div>
 
-        <h2 class="text-lg font-bold text-slate-900 mb-1">
-            {{ "Sign in to your account" if mode == "login" else "Start monitoring companies" }}
-        </h2>
-        <p class="text-xs text-slate-500 mb-6">
-            {{ "Access your insolvency watchlists and alerts." if mode == "login" else "Create your free monitoring portfolio." }}
-        </p>
-
-        {% if error %}
-        <div class="mb-4 p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">
-            {{ error }}
-        </div>
-        {% endif %}
-
-        <form action="{{ '/login' if mode == 'login' else '/register' }}" method="post" class="space-y-4">
-            <div>
-                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1">Corporate Email</label>
-                <input 
-                    type="email" 
-                    name="email" 
-                    required 
-                    placeholder="name@company.co.uk"
-                    class="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-            </div>
-
-            <div>
-                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1">Password</label>
-                <input 
-                    type="password" 
-                    name="password" 
-                    required 
-                    placeholder="••••••••"
-                    class="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-            </div>
-
-            {% if mode == "register" %}
-            <div>
-                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1">Telegram Chat ID (Optional)</label>
-                <input 
-                    type="text" 
-                    name="telegram_chat_id" 
-                    placeholder="e.g. 8829892073"
-                    class="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-xs"
-                >
-                <p class="text-[11px] text-slate-400 mt-1">Receive automated risk alerts directly to Telegram.</p>
+    <div class="mt-8 sm:mx-auto sm:w-full sm:max-w-md px-4 sm:px-0">
+        <div class="bg-white py-8 px-6 shadow-sm border border-slate-200 rounded-2xl sm:px-10">
+            
+            {% if error %}
+            <div class="mb-5 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">
+                {{ error }}
             </div>
             {% endif %}
 
-            <button 
-                type="submit" 
-                class="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-sm rounded-lg transition shadow-sm">
-                {{ "Sign In" if mode == "login" else "Create Account" }}
-            </button>
-        </form>
+            <!-- Tab Switcher -->
+            <div class="flex border-b border-slate-200 mb-6" id="authTabs">
+                <button type="button" onclick="showTab('register')" id="tabRegister" class="flex-1 pb-3 text-sm font-semibold border-b-2 border-slate-900 text-slate-900 transition">
+                    Create Free Account
+                </button>
+                <button type="button" onclick="showTab('login')" id="tabLogin" class="flex-1 pb-3 text-sm font-medium text-slate-500 hover:text-slate-700 border-b-2 border-transparent transition">
+                    Sign In
+                </button>
+            </div>
 
-        <div class="mt-6 text-center text-xs text-slate-500 border-t border-slate-100 pt-4">
-            {% if mode == "login" %}
-                Don't have an account? 
-                <a href="/register" class="font-semibold text-indigo-600 hover:text-indigo-800">Register here</a>
-            {% else %}
-                Already have an account? 
-                <a href="/login" class="font-semibold text-indigo-600 hover:text-indigo-800">Sign in</a>
-            {% endif %}
+            <!-- REGISTRATION FORM -->
+            <form id="formRegister" action="/auth/register" method="POST" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1">Corporate or Business Email</label>
+                    <input type="email" name="email" required placeholder="name@company.com" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1">Password</label>
+                    <input type="password" name="password" required placeholder="••••••••" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1">Telegram Chat ID (For Live Insolvency Radar)</label>
+                    <input type="text" name="telegram_chat_id" placeholder="e.g. 123456789" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition">
+                    
+                    <!-- DİKKAT ÇEKİCİ TELEGRAM KURULUM REHBERİ -->
+                    <div class="mt-3 p-3.5 bg-blue-50/70 border border-blue-200 rounded-xl text-xs text-blue-950 space-y-2">
+                        <div class="flex items-center gap-1.5 font-bold text-blue-900">
+                            <span>⚡</span>
+                            <span>How to Get Your Chat ID & Receive Alerts:</span>
+                        </div>
+                        <ol class="list-decimal list-inside space-y-1 text-slate-700 leading-relaxed">
+                            <li>Open Telegram and start <a href="https://t.me/userinfobot" target="_blank" class="font-bold text-blue-700 underline hover:text-blue-900">@userinfobot</a>.</li>
+                            <li>Copy the numeric <b>Id</b> and paste it in the box above.</li>
+                            <li><b class="text-rose-600">Crucial:</b> Search your monitoring bot on Telegram and press <b>Start</b> so it has permission to send you alerts.</li>
+                        </ol>
+                    </div>
+                </div>
+
+                <div class="pt-2">
+                    <button type="submit" class="w-full bg-slate-900 hover:bg-slate-800 text-white font-semibold py-2.5 px-4 rounded-xl shadow-sm text-sm transition">
+                        Get Started Free (5 Searches & 3 Watchlists) →
+                    </button>
+                </div>
+            </form>
+
+            <!-- LOGIN FORM -->
+            <form id="formLogin" action="/auth/login" method="POST" class="space-y-4 hidden">
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1">Email Address</label>
+                    <input type="email" name="email" required placeholder="name@company.com" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1">Password</label>
+                    <input type="password" name="password" required placeholder="••••••••" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition">
+                </div>
+
+                <div class="pt-2">
+                    <button type="submit" class="w-full bg-slate-900 hover:bg-slate-800 text-white font-semibold py-2.5 px-4 rounded-xl shadow-sm text-sm transition">
+                        Sign In to Radar →
+                    </button>
+                </div>
+            </form>
+
+        </div>
+
+        <div class="mt-6 text-center">
+            <a href="/" class="text-xs text-slate-500 hover:text-slate-800 font-medium">← Back to Registry Search</a>
         </div>
     </div>
 
+    <script>
+        function showTab(type) {
+            const formRegister = document.getElementById('formRegister');
+            const formLogin = document.getElementById('formLogin');
+            const tabRegister = document.getElementById('tabRegister');
+            const tabLogin = document.getElementById('tabLogin');
+
+            if (type === 'register') {
+                formRegister.classList.remove('hidden');
+                formLogin.classList.add('hidden');
+                tabRegister.classList.add('border-slate-900', 'text-slate-900', 'font-semibold');
+                tabRegister.classList.remove('border-transparent', 'text-slate-500', 'font-medium');
+                tabLogin.classList.add('border-transparent', 'text-slate-500', 'font-medium');
+                tabLogin.classList.remove('border-slate-900', 'text-slate-900', 'font-semibold');
+            } else {
+                formLogin.classList.remove('hidden');
+                formRegister.classList.add('hidden');
+                tabLogin.classList.add('border-slate-900', 'text-slate-900', 'font-semibold');
+                tabLogin.classList.remove('border-transparent', 'text-slate-500', 'font-medium');
+                tabRegister.classList.add('border-transparent', 'text-slate-500', 'font-medium');
+                tabRegister.classList.remove('border-slate-900', 'text-slate-900', 'font-semibold');
+            }
+        }
+    </script>
 </body>
 </html>

@@ -1,402 +1,468 @@
+import os
 import sqlite3
-import requests
 import hashlib
 import secrets
-from datetime import date
-from pathlib import Path
-from fastapi import FastAPI, Request, Form, Response
+import asyncio
+from datetime import datetime, date
+from typing import Optional
+
+import httpx
+from fastapi import FastAPI, Request, Form, Response, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from itsdangerous import URLSafeTimedSerializer
 
-CH_API_KEY = "109c448e-0d41-4f59-8651-2eab715f81fa"
-TELEGRAM_TOKEN = "8751754421:AAHN2ta1wD-1LAGKf7Juyao2ggmKVqkwqlI"
-SECRET_KEY = "super-secret-uk-company-radar-key-change-in-prod"
+# ---------------------------------------------------------
+# KONFİGÜRASYON & ÇEVRE DEĞİŞKENLERİ
+# ---------------------------------------------------------
+COMPANIES_HOUSE_API_KEY = os.getenv("COMPANIES_HOUSE_API_KEY", "")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 
-BASE_URL = "https://api.company-information.service.gov.uk"
-BASE_DIR = Path(__file__).resolve().parent
-DB_FILE = BASE_DIR / "companies.db"
+# Admin listesi: Render ortam değişkeni veya varsayılan adres
+ADMIN_EMAILS = [os.getenv("ADMIN_EMAIL", "ayhan.hakyemez@gmail.com").strip().lower()]
 
-GUEST_SEARCH_LIMIT = 3
-REGISTERED_SEARCH_LIMIT = 5
-MAX_FREE_WATCH_LIMIT = 3
-
-serializer = URLSafeTimedSerializer(SECRET_KEY)
+DB_NAME = "companies.db"
 
 app = FastAPI(title="UK Company Radar")
-templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+templates = Jinja2Templates(directory="templates")
 
-# --- ŞİFRELEME (PBKDF2-SHA256) ---
-def hash_password(password: str) -> str:
-    salt = secrets.token_hex(16)
-    key = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 100000)
-    return f"{salt}\${key.hex()}"
-
-def verify_password(password: str, stored_hash: str) -> bool:
-    try:
-        salt, key_hex = stored_hash.split("\$")
-        check_key = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 100000)
-        return secrets.compare_digest(check_key.hex(), key_hex)
-    except Exception:
-        return False
-
+# ---------------------------------------------------------
+# VERİTABANI YÖNETİMİ
+# ---------------------------------------------------------
 def get_db():
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
     return conn
 
 def init_db():
     conn = get_db()
     cursor = conn.cursor()
+    
+    # Kullanıcılar tablosu
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
             telegram_chat_id TEXT,
-            search_count INTEGER DEFAULT 0,
-            last_search_date TEXT,
+            is_pro INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    cursor.execute("PRAGMA table_info(users)")
-    columns = [col["name"] for col in cursor.fetchall()]
-    if "search_count" not in columns:
-        cursor.execute("ALTER TABLE users ADD COLUMN search_count INTEGER DEFAULT 0")
-    if "last_search_date" not in columns:
-        cursor.execute("ALTER TABLE users ADD COLUMN last_search_date TEXT")
-
+    
+    # Takip Listesi
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS watched_companies (
-            company_number TEXT PRIMARY KEY,
-            company_name TEXT,
-            last_status TEXT,
-            last_filing_date TEXT
-        )
-    """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS user_watchlist (
-            user_id INTEGER,
-            company_number TEXT,
+        CREATE TABLE IF NOT EXISTS watchlist (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            company_number TEXT NOT NULL,
+            company_name TEXT NOT NULL,
+            status TEXT NOT NULL,
+            type TEXT,
+            jurisdiction TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (user_id, company_number),
-            FOREIGN KEY (user_id) REFERENCES users (id),
-            FOREIGN KEY (company_number) REFERENCES watched_companies (company_number)
+            FOREIGN KEY (user_id) REFERENCES users (id)
         )
     """)
+    
+    # Günlük Arama Sayacı
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS search_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            identifier TEXT NOT NULL,
+            search_date DATE NOT NULL,
+            count INTEGER DEFAULT 1,
+            UNIQUE(identifier, search_date)
+        )
+    """)
+    
+    # Oturumlar tablosu
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS sessions (
+            session_id TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users (id)
+        )
+    """)
+    
     conn.commit()
     conn.close()
 
-init_db()
+# ---------------------------------------------------------
+# ŞİFRELEME
+# ---------------------------------------------------------
+def hash_password(password: str) -> str:
+    salt = secrets.token_hex(16)
+    key = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 100000)
+    return f"{salt}${key.hex()}"
 
-def get_current_user(request: Request):
-    token = request.cookies.get("session_token")
-    if not token:
-        return None
+def verify_password(stored_hash: str, password: str) -> bool:
     try:
-        user_id = serializer.loads(token, max_age=86400 * 7)
-        conn = get_db()
-        cursor = conn.cursor()
-        cursor.execute("SELECT id, email, telegram_chat_id, search_count, last_search_date FROM users WHERE id = ?", (user_id,))
-        user = cursor.fetchone()
-        conn.close()
-        return user
+        salt, key_hex = stored_hash.split("$")
+        key = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 100000)
+        return key.hex() == key_hex
     except Exception:
-        return None
+        return False
 
-def send_telegram_alert(chat_id: str, message: str):
-    if not chat_id:
+# ---------------------------------------------------------
+# TELEGRAM BİLDİRİM YARDIMCISI
+# ---------------------------------------------------------
+async def send_telegram_alert(chat_id: str, message: str):
+    if not chat_id or not TELEGRAM_BOT_TOKEN:
         return
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": chat_id, "text": message, "parse_mode": "Markdown"}
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": str(chat_id).strip(),
+        "text": message,
+        "parse_mode": "HTML"
+    }
     try:
-        requests.post(url, json=payload, timeout=5)
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            await client.post(url, json=payload)
     except Exception as e:
-        print(f"Telegram error: {e}")
+        print(f"[Telegram Alert Error]: {e}")
 
-# ================= AUTH ENDPOINTS =================
-
-@app.get("/login", response_class=HTMLResponse)
-def login_page(request: Request):
-    if get_current_user(request):
-        return RedirectResponse(url="/", status_code=303)
-    return templates.TemplateResponse(request=request, name="auth.html", context={"mode": "login", "error": None})
-
-@app.post("/login")
-def login(request: Request, email: str = Form(...), password: str = Form(...)):
+# ---------------------------------------------------------
+# KULLANICI & KOTA DOĞRULAMA (Admin / Pro Mantığı)
+# ---------------------------------------------------------
+def get_current_user(request: Request):
+    session_id = request.cookies.get("session_id")
+    if not session_id:
+        return None
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, password_hash FROM users WHERE email = ?", (email.strip().lower(),))
+    cursor.execute("""
+        SELECT u.id, u.email, u.telegram_chat_id, u.is_pro 
+        FROM users u 
+        JOIN sessions s ON u.id = s.user_id 
+        WHERE s.session_id = ?
+    """, (session_id,))
     user = cursor.fetchone()
     conn.close()
-
-    if not user or not verify_password(password, user["password_hash"]):
-        return templates.TemplateResponse(
-            request=request, 
-            name="auth.html", 
-            context={"mode": "login", "error": "Invalid email or password."}
-        )
-
-    token = serializer.dumps(user["id"])
-    res = RedirectResponse(url="/", status_code=303)
-    res.set_cookie(key="session_token", value=token, httponly=True, max_age=86400 * 7)
-    return res
-
-@app.get("/register", response_class=HTMLResponse)
-def register_page(request: Request):
-    if get_current_user(request):
-        return RedirectResponse(url="/", status_code=303)
-    return templates.TemplateResponse(request=request, name="auth.html", context={"mode": "register", "error": None})
-
-@app.post("/register")
-def register(request: Request, email: str = Form(...), password: str = Form(...), telegram_chat_id: str = Form(None)):
-    email_clean = email.strip().lower()
-    hashed = hash_password(password)
-    tg_id = telegram_chat_id.strip() if telegram_chat_id else None
-
-    conn = get_db()
-    cursor = conn.cursor()
-    try:
-        cursor.execute("INSERT INTO users (email, password_hash, telegram_chat_id) VALUES (?, ?, ?)", 
-                       (email_clean, hashed, tg_id))
-        user_id = cursor.lastrowid
-        conn.commit()
-    except sqlite3.IntegrityError:
-        conn.close()
-        return templates.TemplateResponse(
-            request=request, 
-            name="auth.html", 
-            context={"mode": "register", "error": "An account with this email already exists."}
-        )
-    conn.close()
-
-    token = serializer.dumps(user_id)
-    res = RedirectResponse(url="/", status_code=303)
-    res.set_cookie(key="session_token", value=token, httponly=True, max_age=86400 * 7)
-    return res
-
-@app.get("/logout")
-def logout():
-    res = RedirectResponse(url="/", status_code=303)
-    res.delete_cookie("session_token")
-    return res
-
-# ================= DASHBOARD ENDPOINTS =================
-
-@app.get("/", response_class=HTMLResponse)
-def index(request: Request, q: str = None, limit_reached: bool = False):
-    user = get_current_user(request)
-    today_str = str(date.today())
-    search_results = []
-    search_limit_reached = False
-    new_guest_cookie_val = None
-
-    if user:
-        # KAYITLI KULLANICI MANTIĞI (Max: 5 sorgu)
-        daily_limit = REGISTERED_SEARCH_LIMIT
-        conn = get_db()
-        cursor = conn.cursor()
-
-        user_search_count = user["search_count"] or 0
-        if user["last_search_date"] != today_str:
-            user_search_count = 0
-            cursor.execute("UPDATE users SET search_count = 0, last_search_date = ? WHERE id = ?", (today_str, user["id"]))
-            conn.commit()
-
-        cursor.execute("""
-            SELECT c.company_number, c.company_name, c.last_status, c.last_filing_date 
-            FROM watched_companies c
-            INNER JOIN user_watchlist uw ON c.company_number = uw.company_number
-            WHERE uw.user_id = ?
-        """, (user["id"],))
-        companies = cursor.fetchall()
-
-        if q and q.strip():
-            if user_search_count >= daily_limit:
-                search_limit_reached = True
-            else:
-                search_url = f"{BASE_URL}/search/companies?q={requests.utils.quote(q.strip())}&items_per_page=5"
-                res = requests.get(search_url, auth=(CH_API_KEY, ""), timeout=10)
-                if res.status_code == 200:
-                    for item in res.json().get("items", []):
-                        search_results.append({
-                            "name": item.get("title", "Unknown"),
-                            "number": item.get("company_number", ""),
-                            "status": item.get("company_status", "unknown"),
-                            "address": item.get("address_snippet", "")
-                        })
-                    user_search_count += 1
-                    cursor.execute("UPDATE users SET search_count = ?, last_search_date = ? WHERE id = ?", 
-                                   (user_search_count, today_str, user["id"]))
-                    conn.commit()
-
-        remaining_searches = max(0, daily_limit - user_search_count)
-        conn.close()
-
-    else:
-        # KAYITSIZ ZİYARETÇİ MANTIĞI (Max: 3 sorgu - Çerez ile takip)
-        daily_limit = GUEST_SEARCH_LIMIT
-        companies = []
-        guest_data = request.cookies.get("guest_searches", f"{today_str}:0")
+    
+    if not user:
+        return None
         
-        try:
-            cookie_date, count_str = guest_data.split(":")
-            guest_count = int(count_str) if cookie_date == today_str else 0
-        except Exception:
-            guest_count = 0
+    user_dict = dict(user)
+    # Admin kontrolü: E-posta admin listesindeyse otomatik PRO ve Admin sayılır
+    if user_dict["email"].lower() in ADMIN_EMAILS:
+        user_dict["is_pro"] = 1
+        user_dict["is_admin"] = True
+    else:
+        user_dict["is_admin"] = False
+        
+    return user_dict
 
-        if q and q.strip():
-            if guest_count >= daily_limit:
-                search_limit_reached = True
-            else:
-                search_url = f"{BASE_URL}/search/companies?q={requests.utils.quote(q.strip())}&items_per_page=5"
-                res = requests.get(search_url, auth=(CH_API_KEY, ""), timeout=10)
-                if res.status_code == 200:
-                    for item in res.json().get("items", []):
-                        search_results.append({
-                            "name": item.get("title", "Unknown"),
-                            "number": item.get("company_number", ""),
-                            "status": item.get("company_status", "unknown"),
-                            "address": item.get("address_snippet", "")
-                        })
-                    guest_count += 1
-                    new_guest_cookie_val = f"{today_str}:{guest_count}"
-
-        remaining_searches = max(0, daily_limit - guest_count)
-
-    response = templates.TemplateResponse(
-        request=request, 
-        name="index.html", 
-        context={
-            "user": user,
-            "companies": companies,
-            "search_results": search_results,
-            "query": q or "",
-            "limit_reached": limit_reached,
-            "search_limit_reached": search_limit_reached,
-            "remaining_searches": remaining_searches,
-            "daily_limit": daily_limit
-        }
-    )
-
-    if new_guest_cookie_val:
-        response.set_cookie(key="guest_searches", value=new_guest_cookie_val, max_age=86400)
-
-    return response
-
-@app.post("/track")
-def track(request: Request, company_number: str = Form(...)):
-    user = get_current_user(request)
-    if not user:
-        # Kayıtsız kullanıcı şirket takip etmeye çalışırsa doğrudan kayıt olmaya yönlendirilir
-        return RedirectResponse(url="/register", status_code=303)
-
+def get_search_count(identifier: str) -> int:
+    today = date.today().isoformat()
     conn = get_db()
     cursor = conn.cursor()
-
-    cursor.execute("SELECT COUNT(*) as count FROM user_watchlist WHERE user_id = ?", (user["id"],))
-    count_row = cursor.fetchone()
-    current_count = count_row["count"] if count_row else 0
-
-    if current_count >= MAX_FREE_WATCH_LIMIT:
-        conn.close()
-        return RedirectResponse(url="/?limit_reached=true", status_code=303)
-
-    comp_no = company_number.strip().upper()
-    url = f"{BASE_URL}/company/{comp_no}"
-    res = requests.get(url, auth=(CH_API_KEY, ""), timeout=10)
-
-    if res.status_code == 200:
-        data = res.json()
-        name = data.get("company_name", "Unknown")
-        status = data.get("company_status", "unknown")
-
-        cursor.execute("""
-            INSERT OR REPLACE INTO watched_companies (company_number, company_name, last_status, last_filing_date)
-            VALUES (?, ?, ?, NULL)
-        """, (comp_no, name, status))
-        cursor.execute("""
-            INSERT OR IGNORE INTO user_watchlist (user_id, company_number)
-            VALUES (?, ?)
-        """, (user["id"], comp_no))
-        conn.commit()
-
+    cursor.execute("SELECT count FROM search_logs WHERE identifier = ? AND search_date = ?", (identifier, today))
+    row = cursor.fetchone()
     conn.close()
-    return RedirectResponse(url="/", status_code=303)
+    return row["count"] if row else 0
 
-@app.get("/untrack/{company_number}")
-def untrack(request: Request, company_number: str):
-    user = get_current_user(request)
-    if not user:
-        return RedirectResponse(url="/login", status_code=303)
-
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM user_watchlist WHERE user_id = ? AND company_number = ?", 
-                   (user["id"], company_number))
-    conn.commit()
-    conn.close()
-    return RedirectResponse(url="/", status_code=303)
-
-@app.get("/scan")
-def scan(request: Request):
-    user = get_current_user(request)
-    if not user:
-        return RedirectResponse(url="/login", status_code=303)
-
+def increment_search_count(identifier: str):
+    today = date.today().isoformat()
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT c.company_number, c.last_status, c.last_filing_date 
-        FROM watched_companies c
-        INNER JOIN user_watchlist uw ON c.company_number = uw.company_number
-        WHERE uw.user_id = ?
-    """, (user["id"],))
-    companies = cursor.fetchall()
-
-    risk_statuses = ["dissolved", "liquidation", "administration", "receivership"]
-
-    for comp in companies:
-        comp_no = comp["company_number"]
-        url = f"{BASE_URL}/company/{comp_no}"
-        res = requests.get(url, auth=(CH_API_KEY, ""), timeout=10)
-        if res.status_code != 200:
-            continue
-
-        data = res.json()
-        name = data.get("company_name", "Unknown")
-        current_status = data.get("company_status", "unknown")
-        has_insolvency = data.get("has_insolvency_history", False)
-
-        f_res = requests.get(f"{BASE_URL}/company/{comp_no}/filing-history?items_per_page=1", auth=(CH_API_KEY, ""), timeout=10)
-        latest_date = None
-        latest_desc = "None"
-        if f_res.status_code == 200:
-            items = f_res.json().get("items", [])
-            if items:
-                latest_date = items[0].get("date")
-                latest_desc = items[0].get("description", "")
-
-        is_risky = current_status in risk_statuses
-        status_changed = comp["last_status"] is not None and comp["last_status"] != current_status
-
-        if (is_risky or has_insolvency or status_changed) and user["telegram_chat_id"]:
-            alert = (
-                f"🚨 *CRITICAL RISK ALERT (PORTFOLIO AUDIT)*\n\n"
-                f"🏢 *Entity:* {name}\n"
-                f"🔢 *Reg No:* `{comp_no}`\n"
-                f"⚠️ *Status:* *{current_status.upper()}*\n"
-                f"📋 *Notice:* _{latest_desc}_\n\n"
-                f"🔗 [Companies House Profile](https://find-and-update.company-information.service.gov.uk/company/{comp_no})"
-            )
-            send_telegram_alert(user["telegram_chat_id"], alert)
-
-        cursor.execute("""
-            UPDATE watched_companies
-            SET company_name = ?, last_status = ?, last_filing_date = ?
-            WHERE company_number = ?
-        """, (name, current_status, latest_date, comp_no))
-
+        INSERT INTO search_logs (identifier, search_date, count) 
+        VALUES (?, ?, 1)
+        ON CONFLICT(identifier, search_date) DO UPDATE SET count = count + 1
+    """, (identifier, today))
     conn.commit()
     conn.close()
-    return RedirectResponse(url="/", status_code=303)
+
+# ---------------------------------------------------------
+# COMPANIES HOUSE API SORGUSU
+# ---------------------------------------------------------
+async def search_companies_house(query: str):
+    if not COMPANIES_HOUSE_API_KEY:
+        return []
+    url = f"https://api.company-information.service.gov.uk/search/companies?q={query}"
+    auth = (COMPANIES_HOUSE_API_KEY, "")
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            res = await client.get(url, auth=auth)
+            if res.status_code == 200:
+                data = res.json()
+                return data.get("items", [])
+    except Exception as e:
+        print(f"[Companies House Error]: {e}")
+    return []
+
+async def get_company_profile(company_number: str):
+    if not COMPANIES_HOUSE_API_KEY:
+        return None
+    url = f"https://api.company-information.service.gov.uk/company/{company_number}"
+    auth = (COMPANIES_HOUSE_API_KEY, "")
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            res = await client.get(url, auth=auth)
+            if res.status_code == 200:
+                return res.json()
+    except Exception as e:
+        print(f"[Companies House Profile Error]: {e}")
+    return None
+
+# ---------------------------------------------------------
+# OTOMATİK ARKA PLAN TARAYICI (BACKGROUND SCHEDULER)
+# ---------------------------------------------------------
+async def automated_background_monitor():
+    """Her 60 dakikada bir takip edilen tüm şirketleri otomatik sorgular."""
+    while True:
+        try:
+            await asyncio.sleep(3600)  # 1 saat bekleme
+            conn = get_db()
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT w.id, w.company_number, w.company_name, w.status, u.telegram_chat_id 
+                FROM watchlist w 
+                JOIN users u ON w.user_id = u.id
+            """)
+            items = cursor.fetchall()
+            
+            for item in items:
+                live_profile = await get_company_profile(item["company_number"])
+                if live_profile:
+                    new_status = live_profile.get("company_status", "unknown")
+                    old_status = item["status"]
+                    
+                    if new_status.lower() != old_status.lower():
+                        cursor.execute("UPDATE watchlist SET status = ? WHERE id = ?", (new_status, item["id"]))
+                        conn.commit()
+                        
+                        if item["telegram_chat_id"]:
+                            alert_msg = (
+                                f"🚨 <b>CRITICAL RISK ALERT: STATUS CHANGE DETECTED</b>\n\n"
+                                f"<b>Company:</b> {item['company_name']} ({item['company_number']})\n"
+                                f"<b>Previous Status:</b> {old_status.upper()}\n"
+                                f"<b>New Status:</b> ⚠️ <b>{new_status.upper()}</b>\n\n"
+                                f"<i>Immediate attention recommended. Check Companies House filing.</i>"
+                            )
+                            await send_telegram_alert(item["telegram_chat_id"], alert_msg)
+            conn.close()
+        except Exception as e:
+            print(f"[Background Monitor Error]: {e}")
+
+@app.on_event("startup")
+async def startup_event():
+    init_db()
+    asyncio.create_task(automated_background_monitor())
+
+# ---------------------------------------------------------
+# ROTALAR (ENDPOINTS)
+# ---------------------------------------------------------
+@app.get("/", response_class=HTMLResponse)
+async def index(request: Request, q: Optional[str] = None):
+    user = get_current_user(request)
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    
+    is_pro = bool(user and user.get("is_pro"))
+    identifier = f"user_{user['id']}" if user else f"guest_{client_ip}"
+    search_count = get_search_count(identifier)
+    
+    if is_pro:
+        search_limit = 999999
+        search_limit_reached = False
+        remaining_searches = "Unlimited"
+    elif user:
+        search_limit = 5
+        search_limit_reached = search_count >= search_limit
+        remaining_searches = max(0, search_limit - search_count)
+    else:
+        search_limit = 3
+        search_limit_reached = search_count >= search_limit
+        remaining_searches = max(0, search_limit - search_count)
+        
+    search_results = []
+    if q and not search_limit_reached:
+        search_results = await search_companies_house(q)
+        increment_search_count(identifier)
+        if not is_pro:
+            search_count += 1
+            remaining_searches = max(0, search_limit - search_count)
+            if search_count >= search_limit:
+                search_limit_reached = True
+
+    watchlist = []
+    watchlist_limit_reached = False
+    if user:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM watchlist WHERE user_id = ? ORDER BY created_at DESC", (user["id"],))
+        watchlist = cursor.fetchall()
+        conn.close()
+        
+        if not is_pro and len(watchlist) >= 3:
+            watchlist_limit_reached = True
+
+    return templates.TemplateResponse("index.html", {
+        "request": request,
+        "user": user,
+        "query": q,
+        "results": search_results,
+        "watchlist": watchlist,
+        "search_count": search_count,
+        "search_limit": search_limit,
+        "search_limit_reached": search_limit_reached,
+        "remaining_searches": remaining_searches,
+        "watchlist_limit_reached": watchlist_limit_reached,
+        "is_pro": is_pro
+    })
+
+@app.post("/track")
+async def track_company(
+    request: Request, 
+    company_number: str = Form(...), 
+    company_name: str = Form(...), 
+    status: str = Form(...),
+    type: str = Form(None),
+    jurisdiction: str = Form(None)
+):
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse(url="/auth", status_code=status.HTTP_303_SEE_OTHER)
+        
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) as count FROM watchlist WHERE user_id = ?", (user["id"],))
+    count = cursor.fetchone()["count"]
+    
+    if not user.get("is_pro") and count >= 3:
+        conn.close()
+        return RedirectResponse(url="/?limit_reached=1", status_code=status.HTTP_303_SEE_OTHER)
+        
+    cursor.execute("""
+        INSERT INTO watchlist (user_id, company_number, company_name, status, type, jurisdiction)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (user["id"], company_number, company_name, status, type, jurisdiction))
+    conn.commit()
+    conn.close()
+    
+    # Anlık Telegram Bildirimi
+    if user.get("telegram_chat_id"):
+        welcome_alert = (
+            f"🛡️ <b>UK Company Radar | Monitoring Active</b>\n\n"
+            f"<b>Company:</b> {company_name} ({company_number})\n"
+            f"<b>Current Legal Status:</b> {status.upper()}\n\n"
+            f"✅ <i>24/7 automated insolvency monitoring is now active. You will receive an instant notification here if this entity enters liquidation, administration, or strike-off.</i>"
+        )
+        asyncio.create_task(send_telegram_alert(user["telegram_chat_id"], welcome_alert))
+
+    return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+
+@app.post("/untrack")
+async def untrack_company(request: Request, company_id: int = Form(...)):
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse(url="/auth", status_code=status.HTTP_303_SEE_OTHER)
+        
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM watchlist WHERE id = ? AND user_id = ?", (company_id, user["id"]))
+    conn.commit()
+    conn.close()
+    return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+
+# ---------------------------------------------------------
+# KULLANICI GİRİŞ / KAYIT / ÇIKIŞ & GÜVENLİK KİLİTLERİ
+# ---------------------------------------------------------
+@app.get("/auth", response_class=HTMLResponse)
+async def auth_page(request: Request):
+    user = get_current_user(request)
+    if user:
+        return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+    return templates.TemplateResponse("auth.html", {"request": request, "error": None})
+
+@app.post("/auth/register")
+async def register(
+    request: Request, 
+    email: str = Form(...), 
+    password: str = Form(...), 
+    telegram_chat_id: str = Form(None)
+):
+    email_clean = email.strip().lower()
+    chat_id_clean = telegram_chat_id.strip() if telegram_chat_id else None
+    
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # 1. E-posta Kayıtlı mı?
+    cursor.execute("SELECT id FROM users WHERE lower(email) = ?", (email_clean,))
+    if cursor.fetchone():
+        conn.close()
+        return templates.TemplateResponse("auth.html", {"request": request, "error": "This email is already registered."})
+        
+    # 2. GÜVENLİK KİLİDİ: Aynı Telegram ID ile ikinci bir ücretsiz hesap açılamaz!
+    if chat_id_clean and (email_clean not in ADMIN_EMAILS):
+        cursor.execute("SELECT id FROM users WHERE telegram_chat_id = ?", (chat_id_clean,))
+        existing_tg_user = cursor.fetchone()
+        if existing_tg_user:
+            conn.close()
+            return templates.TemplateResponse(
+                "auth.html", 
+                {"request": request, "error": "This Telegram Chat ID is already registered to another account. Please sign in or use Pro."}
+            )
+        
+    pwd_hash = hash_password(password)
+    is_pro_val = 1 if email_clean in ADMIN_EMAILS else 0
+    
+    cursor.execute("""
+        INSERT INTO users (email, password_hash, telegram_chat_id, is_pro) 
+        VALUES (?, ?, ?, ?)
+    """, (email_clean, pwd_hash, chat_id_clean, is_pro_val))
+    user_id = cursor.lastrowid
+    
+    session_id = secrets.token_hex(24)
+    cursor.execute("INSERT INTO sessions (session_id, user_id) VALUES (?, ?)", (session_id, user_id))
+    conn.commit()
+    conn.close()
+    
+    if chat_id_clean:
+        reg_msg = (
+            f"👋 <b>Welcome to UK Company Radar!</b>\n\n"
+            f"Your Telegram Chat ID has been linked successfully.\n"
+            f"Whenever you track a UK entity, automated monitoring will dispatch alerts directly here."
+        )
+        asyncio.create_task(send_telegram_alert(chat_id_clean, reg_msg))
+    
+    response = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+    response.set_cookie("session_id", session_id, max_age=30*86400, httponly=True)
+    return response
+
+@app.post("/auth/login")
+async def login(request: Request, email: str = Form(...), password: str = Form(...)):
+    email_clean = email.strip().lower()
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users WHERE lower(email) = ?", (email_clean,))
+    user = cursor.fetchone()
+    
+    if not user or not verify_password(user["password_hash"], password):
+        conn.close()
+        return templates.TemplateResponse("auth.html", {"request": request, "error": "Invalid email or password."})
+        
+    session_id = secrets.token_hex(24)
+    cursor.execute("INSERT INTO sessions (session_id, user_id) VALUES (?, ?)", (session_id, user["id"]))
+    conn.commit()
+    conn.close()
+    
+    response = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+    response.set_cookie("session_id", session_id, max_age=30*86400, httponly=True)
+    return response
+
+@app.get("/auth/logout")
+async def logout(request: Request):
+    session_id = request.cookies.get("session_id")
+    if session_id:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
+        conn.commit()
+        conn.close()
+        
+    response = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+    response.delete_cookie("session_id")
+    return response
