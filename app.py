@@ -17,7 +17,7 @@ from fastapi.templating import Jinja2Templates
 COMPANIES_HOUSE_API_KEY = os.getenv("COMPANIES_HOUSE_API_KEY", "")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 
-# Admin listesi: Render ortam değişkeni veya varsayılan adres
+# Admin listesi
 ADMIN_EMAILS = [os.getenv("ADMIN_EMAIL", "ayhan.hakyemez@gmail.com").strip().lower()]
 
 DB_NAME = "companies.db"
@@ -123,7 +123,7 @@ async def send_telegram_alert(chat_id: str, message: str):
         print(f"[Telegram Alert Error]: {e}")
 
 # ---------------------------------------------------------
-# KULLANICI & KOTA DOĞRULAMA (Admin / Pro Mantığı)
+# KULLANICI & KOTA DOĞRULAMA
 # ---------------------------------------------------------
 def get_current_user(request: Request):
     session_id = request.cookies.get("session_id")
@@ -144,7 +144,6 @@ def get_current_user(request: Request):
         return None
         
     user_dict = dict(user)
-    # Admin kontrolü: E-posta admin listesindeyse otomatik PRO ve Admin sayılır
     if user_dict["email"].lower() in ADMIN_EMAILS:
         user_dict["is_pro"] = 1
         user_dict["is_admin"] = True
@@ -207,13 +206,12 @@ async def get_company_profile(company_number: str):
     return None
 
 # ---------------------------------------------------------
-# OTOMATİK ARKA PLAN TARAYICI (BACKGROUND SCHEDULER)
+# OTOMATİK ARKA PLAN TARAYICI
 # ---------------------------------------------------------
 async def automated_background_monitor():
-    """Her 60 dakikada bir takip edilen tüm şirketleri otomatik sorgular."""
     while True:
         try:
-            await asyncio.sleep(3600)  # 1 saat bekleme
+            await asyncio.sleep(3600)
             conn = get_db()
             cursor = conn.cursor()
             cursor.execute("""
@@ -298,19 +296,22 @@ async def index(request: Request, q: Optional[str] = None):
         if not is_pro and len(watchlist) >= 3:
             watchlist_limit_reached = True
 
-    return templates.TemplateResponse("index.html", {
-        "request": request,
-        "user": user,
-        "query": q,
-        "results": search_results,
-        "watchlist": watchlist,
-        "search_count": search_count,
-        "search_limit": search_limit,
-        "search_limit_reached": search_limit_reached,
-        "remaining_searches": remaining_searches,
-        "watchlist_limit_reached": watchlist_limit_reached,
-        "is_pro": is_pro
-    })
+    return templates.TemplateResponse(
+        request=request,
+        name="index.html",
+        context={
+            "user": user,
+            "query": q,
+            "results": search_results,
+            "watchlist": watchlist,
+            "search_count": search_count,
+            "search_limit": search_limit,
+            "search_limit_reached": search_limit_reached,
+            "remaining_searches": remaining_searches,
+            "watchlist_limit_reached": watchlist_limit_reached,
+            "is_pro": is_pro
+        }
+    )
 
 @app.post("/track")
 async def track_company(
@@ -341,7 +342,6 @@ async def track_company(
     conn.commit()
     conn.close()
     
-    # Anlık Telegram Bildirimi
     if user.get("telegram_chat_id"):
         welcome_alert = (
             f"🛡️ <b>UK Company Radar | Monitoring Active</b>\n\n"
@@ -367,14 +367,18 @@ async def untrack_company(request: Request, company_id: int = Form(...)):
     return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
 
 # ---------------------------------------------------------
-# KULLANICI GİRİŞ / KAYIT / ÇIKIŞ & GÜVENLİK KİLİTLERİ
+# KULLANICI GİRİŞ / KAYIT / ÇIKIŞ
 # ---------------------------------------------------------
 @app.get("/auth", response_class=HTMLResponse)
 async def auth_page(request: Request):
     user = get_current_user(request)
     if user:
         return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
-    return templates.TemplateResponse("auth.html", {"request": request, "error": None})
+    return templates.TemplateResponse(
+        request=request,
+        name="auth.html",
+        context={"error": None}
+    )
 
 @app.post("/auth/register")
 async def register(
@@ -389,21 +393,24 @@ async def register(
     conn = get_db()
     cursor = conn.cursor()
     
-    # 1. E-posta Kayıtlı mı?
     cursor.execute("SELECT id FROM users WHERE lower(email) = ?", (email_clean,))
     if cursor.fetchone():
         conn.close()
-        return templates.TemplateResponse("auth.html", {"request": request, "error": "This email is already registered."})
+        return templates.TemplateResponse(
+            request=request,
+            name="auth.html",
+            context={"error": "This email is already registered."}
+        )
         
-    # 2. GÜVENLİK KİLİDİ: Aynı Telegram ID ile ikinci bir ücretsiz hesap açılamaz!
     if chat_id_clean and (email_clean not in ADMIN_EMAILS):
         cursor.execute("SELECT id FROM users WHERE telegram_chat_id = ?", (chat_id_clean,))
         existing_tg_user = cursor.fetchone()
         if existing_tg_user:
             conn.close()
             return templates.TemplateResponse(
-                "auth.html", 
-                {"request": request, "error": "This Telegram Chat ID is already registered to another account. Please sign in or use Pro."}
+                request=request,
+                name="auth.html",
+                context={"error": "This Telegram Chat ID is already registered to another account. Please sign in or use Pro."}
             )
         
     pwd_hash = hash_password(password)
@@ -442,7 +449,11 @@ async def login(request: Request, email: str = Form(...), password: str = Form(.
     
     if not user or not verify_password(user["password_hash"], password):
         conn.close()
-        return templates.TemplateResponse("auth.html", {"request": request, "error": "Invalid email or password."})
+        return templates.TemplateResponse(
+            request=request,
+            name="auth.html",
+            context={"error": "Invalid email or password."}
+        )
         
     session_id = secrets.token_hex(24)
     cursor.execute("INSERT INTO sessions (session_id, user_id) VALUES (?, ?)", (session_id, user["id"]))
