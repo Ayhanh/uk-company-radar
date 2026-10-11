@@ -294,7 +294,8 @@
         </div>
         {% endif %}
 
-        <!-- FİYATLANDIRMA / PLAN SEÇİM TABLOSU -->
+        <!-- FİYATLANDIRMA / PLAN SEÇİM TABLOSU (PRO KULLANICILARDA GİZLENİR) -->
+        {% if not is_pro %}
         <section class="pt-4">
             <div class="text-center max-w-xl mx-auto mb-8 space-y-2">
                 <h3 class="text-xs font-bold tracking-wider uppercase text-blue-600">TRANSPARENT PRICING</h3>
@@ -350,18 +351,13 @@
                             <li class="flex items-center gap-2"><span>✓</span> Instant priority push alerts</li>
                         </ul>
                     </div>
-                    {% if is_pro %}
-                        <div class="w-full text-center bg-emerald-50 text-emerald-700 font-bold text-xs py-2.5 rounded-xl border border-emerald-200">
-                            ✓ Your Pro Subscription is Active
-                        </div>
-                    {% else %}
-                        <a href="https://ukcompanyradar.lemonsqueezy.com/checkout/buy/106feac0-8826-48b3-a902-4e7e9a54f9ed" target="_blank" class="w-full text-center bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-2.5 rounded-xl shadow transition">
-                            Upgrade to Pro (Unlimited) →
-                        </a>
-                    {% endif %}
+                    <a href="https://ukcompanyradar.lemonsqueezy.com/checkout/buy/106feac0-8826-48b3-a902-4e7e9a54f9ed" target="_blank" class="w-full text-center bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-2.5 rounded-xl shadow transition">
+                        Upgrade to Pro (Unlimited) →
+                    </a>
                 </div>
             </div>
         </section>
+        {% endif %}
 
         <!-- SİSTEM GÜVEN VE DEĞER AÇIKLAMALARI -->
         <section class="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">
@@ -550,7 +546,7 @@
         try {
             const res = await fetch(`/api/company/${companyNumber}/details`);
             if (!res.ok) throw new Error("Could not fetch details");
-            const data = await res.json();
+            const data = await minifiedData(res);
             
             const p = data.profile;
             document.getElementById('modalCompanyName').innerText = p.company_name || 'Unknown Name';
@@ -645,6 +641,10 @@
         }
     }
 
+    async function minifiedData(res) {
+        return await res.json();
+    }
+
     function closeCompanyModal() {
         document.getElementById('companyModal').classList.add('hidden');
     }
@@ -657,7 +657,7 @@
     });
     </script>
 
-<!-- Cloudflare Web Analytics -->
+    <!-- Cloudflare Web Analytics -->
     <script type='module' src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "9ffb911737054635a5e93e0aabec2e25"}'></script>
     <!-- End Cloudflare Web Analytics -->
 </body>
