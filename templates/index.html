@@ -1,0 +1,270 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UK Company Radar | Monitoring Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+
+    <header class="bg-white border-b border-slate-200">
+        <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <span class="text-2xl">🛡️</span>
+                <div>
+                    <h1 class="text-lg font-bold text-slate-900 tracking-tight leading-tight">UK Company Radar</h1>
+                    <p class="text-xs text-slate-500 font-medium">Companies House Insolvency & Status Monitor</p>
+                </div>
+            </div>
+            
+            <div class="flex items-center space-x-3">
+                {% if user %}
+                    <span class="text-xs text-slate-500 font-medium hidden sm:inline">Signed in as: <strong class="text-slate-800">{{ user.email }}</strong></span>
+                    <a href="/scan" class="inline-flex items-center px-3.5 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition">
+                        🔄 Run Audit
+                    </a>
+                    <a href="/logout" class="text-xs font-semibold text-slate-500 hover:text-slate-800 border border-slate-200 px-3 py-1.5 rounded-lg transition">
+                        Sign Out
+                    </a>
+                {% else %}
+                    <a href="/login" class="text-xs font-semibold text-slate-600 hover:text-slate-900 px-3 py-1.5 transition">
+                        Sign In
+                    </a>
+                    <a href="/register" class="inline-flex items-center px-4 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-sm transition">
+                        Create Free Account
+                    </a>
+                {% endif %}
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto px-6 py-8">
+
+        <!-- Takip Listesi Limiti Uyarısı (Kayıtlı Kullanıcı: 3 Şirket) -->
+        {% if limit_reached %}
+        <div class="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div>
+                <h3 class="font-bold text-amber-900 text-sm">Free Watchlist Limit Reached (3/3)</h3>
+                <p class="text-xs text-amber-700 mt-0.5">You can monitor up to 3 entities on the Free tier. Remove an existing company to free a slot, or upgrade to Pro for unlimited tracking.</p>
+            </div>
+            <a href="javascript:alert('Stripe Pro checkout integration coming soon!');" class="whitespace-nowrap px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg shadow-sm transition">
+                Upgrade to Pro (£29/mo)
+            </a>
+        </div>
+        {% endif %}
+
+        <!-- Günlük Arama Limiti Uyarısı -->
+        {% if search_limit_reached %}
+            {% if user %}
+                <!-- Kayıtlı Kullanıcı 5 Sorgu Bitti -->
+                <div class="mb-6 p-5 bg-rose-50 border border-rose-200 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div>
+                        <h3 class="font-bold text-rose-900 text-sm">Daily Search Limit Reached (5/5)</h3>
+                        <p class="text-xs text-rose-700 mt-0.5">You have utilized all 5 free daily queries. Your quota resets at midnight, or upgrade to Pro for unlimited instant lookups.</p>
+                    </div>
+                    <a href="javascript:alert('Stripe Pro checkout integration coming soon!');" class="whitespace-nowrap px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-lg shadow-sm transition">
+                        Unlock Unlimited Searches (£29/mo)
+                    </a>
+                </div>
+            {% else %}
+                <!-- Kayıtsız Misafir 3 Sorgu Bitti -->
+                <div class="mb-6 p-5 bg-indigo-50 border border-indigo-200 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div>
+                        <h3 class="font-bold text-indigo-950 text-sm">Guest Limit Reached (3/3 Free Searches)</h3>
+                        <p class="text-xs text-indigo-700 mt-0.5">You've reached the free guest limit for today. Create a free account to unlock 5 daily searches, 3 watchlist slots, and instant alerts.</p>
+                    </div>
+                    <a href="/register" class="whitespace-nowrap px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow-sm transition">
+                        Create Free Account (Get 5 Lookups)
+                    </a>
+                </div>
+            {% endif %}
+        {% endif %}
+
+        <!-- Arama Alanı -->
+        <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-8">
+            <div class="flex justify-between items-center mb-3">
+                <h2 class="text-sm font-bold text-slate-700 uppercase tracking-wider">Search & Track UK Companies</h2>
+                <span class="text-xs font-semibold px-2.5 py-1 rounded-full {% if remaining_searches > 0 %}bg-slate-100 text-slate-600{% else %}bg-rose-100 text-rose-700{% endif %}">
+                    {% if user %}
+                        Daily Free Searches: {{ remaining_searches }}/{{ daily_limit }}
+                    {% else %}
+                        Guest Lookups: {{ remaining_searches }}/{{ daily_limit }}
+                    {% endif %}
+                </span>
+            </div>
+            <form action="/" method="get" class="flex flex-col sm:flex-row gap-3">
+                <input 
+                    type="text" 
+                    name="q" 
+                    value="{{ query }}"
+                    placeholder="Enter Company Name or Reg Number (e.g. Barclays, Dyson, 00445790)..." 
+                    required 
+                    class="flex-1 px-4 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                >
+                <button 
+                    type="submit" 
+                    class="px-6 py-2.5 bg-slate-900 text-white font-semibold rounded-lg hover:bg-slate-800 text-sm transition">
+                    🔍 Search Registry
+                </button>
+            </form>
+
+            {% if search_results %}
+            <div class="mt-6 border-t border-slate-100 pt-4">
+                <h3 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Official Search Matches:</h3>
+                <div class="space-y-2">
+                    {% for item in search_results %}
+                    <div class="flex items-center justify-between p-3.5 rounded-lg border border-slate-200 hover:border-indigo-300 bg-slate-50/50 transition">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="font-semibold text-sm text-slate-900">{{ item.name }}</span>
+                                <span class="font-mono text-xs px-2 py-0.5 bg-slate-200 text-slate-700 rounded">{{ item.number }}</span>
+                                {% if item.status == 'active' %}
+                                    <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Active</span>
+                                {% else %}
+                                    <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 uppercase">{{ item.status }}</span>
+                                {% endif %}
+                            </div>
+                            <p class="text-xs text-slate-500 mt-0.5">{{ item.address }}</p>
+                        </div>
+                        <form action="/track" method="post" class="m-0">
+                            <input type="hidden" name="company_number" value="{{ item.number }}">
+                            <button type="submit" class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow-sm transition">
+                                {% if user %}
+                                    + Add to Portfolio
+                                {% else %}
+                                    Track Entity (Free)
+                                {% endif %}
+                            </button>
+                        </form>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% elif query and not search_limit_reached %}
+            <div class="mt-4 p-4 text-xs text-slate-500 bg-slate-50 rounded-lg">
+                No matching UK companies found for "{{ query }}".
+            </div>
+            {% endif %}
+        </section>
+
+        <!-- Monitored Watchlist Table (Sadece Kayıtlı Kullanıcıya veya Kayıt Ol Çağrısı) -->
+        {% if user %}
+        <section class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50/50">
+                <h2 class="text-sm font-bold text-slate-700 uppercase tracking-wider">Your Monitored Portfolio ({{ companies|length }}/3)</h2>
+                <span class="text-xs text-slate-500">Free Tier: 3 Entities Max</span>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm text-slate-600">
+                    <thead class="bg-slate-100 text-slate-700 text-xs uppercase font-semibold border-b border-slate-200">
+                        <tr>
+                            <th class="px-6 py-3.5">Status</th>
+                            <th class="px-6 py-3.5">Company Name</th>
+                            <th class="px-6 py-3.5">Reg No</th>
+                            <th class="px-6 py-3.5">Last Filing Date</th>
+                            <th class="px-6 py-3.5 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-200">
+                        {% for comp in companies %}
+                        <tr class="hover:bg-slate-50/80 transition">
+                            <td class="px-6 py-4">
+                                {% if comp.last_status == 'active' %}
+                                    <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
+                                        ● Active
+                                    </span>
+                                {% else %}
+                                    <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-100 text-rose-800 uppercase">
+                                        ▲ {{ comp.last_status or 'Unknown' }}
+                                    </span>
+                                {% endif %}
+                            </td>
+                            <td class="px-6 py-4 font-semibold text-slate-900">
+                                {{ comp.company_name }}
+                            </td>
+                            <td class="px-6 py-4 font-mono text-xs text-slate-500">
+                                {{ comp.company_number }}
+                            </td>
+                            <td class="px-6 py-4 text-xs text-slate-500">
+                                {{ comp.last_filing_date or 'No filing logged' }}
+                            </td>
+                            <td class="px-6 py-4 text-right space-x-3">
+                                <a 
+                                    href="https://find-and-update.company-information.service.gov.uk/company/{{ comp.company_number }}" 
+                                    target="_blank" 
+                                    class="text-xs font-medium text-indigo-600 hover:text-indigo-800 underline">
+                                    Gov.uk
+                                </a>
+                                <a 
+                                    href="/untrack/{{ comp.company_number }}" 
+                                    class="text-xs font-medium text-rose-600 hover:text-rose-800">
+                                    Remove
+                                </a>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="5" class="px-6 py-8 text-center text-xs text-slate-400">
+                                You are not monitoring any companies yet. Search above to add to your watchlist.
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+        {% else %}
+        <!-- Kayıtsız Kullanıcıya Portföy Teşvik Kartı -->
+        <section class="bg-gradient-to-r from-slate-900 to-indigo-950 rounded-xl p-8 text-white shadow-sm flex flex-col md:flex-row items-center justify-between gap-6">
+            <div>
+                <span class="text-xs uppercase font-bold text-indigo-400 tracking-wider">Free Watchlist Feature</span>
+                <h3 class="text-xl font-bold mt-1">Want 24/7 Automated Insolvency Alerts?</h3>
+                <p class="text-xs text-slate-300 mt-2 max-w-xl leading-relaxed">
+                    Create a free account to track up to 3 UK entities. Get notified via Telegram whenever a customer, supplier, or competitor enters liquidation, administration, or strike-off status.
+                </p>
+            </div>
+            <a href="/register" class="whitespace-nowrap px-6 py-3 bg-white text-slate-900 font-bold text-xs rounded-lg hover:bg-slate-100 shadow transition">
+                Create Free Account →
+            </a>
+        </section>
+        {% endif %}
+
+        <!-- Bilgilendirme Footer Bölümü -->
+        <footer class="mt-12 border-t border-slate-200 pt-8 pb-12">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 text-slate-600 mb-8">
+                <div class="bg-white p-5 rounded-xl border border-slate-200">
+                    <div class="text-xl mb-2">⚡</div>
+                    <h3 class="font-bold text-slate-900 text-sm mb-1">Official Registry Sync</h3>
+                    <p class="text-xs leading-relaxed text-slate-500">
+                        Direct integration with UK Companies House registers. Continuously verifies incorporation status, director changes, and official filings.
+                    </p>
+                </div>
+
+                <div class="bg-white p-5 rounded-xl border border-slate-200">
+                    <div class="text-xl mb-2">🚨</div>
+                    <h3 class="font-bold text-slate-900 text-sm mb-1">Insolvency & Risk Radar</h3>
+                    <p class="text-xs leading-relaxed text-slate-500">
+                        Early detection for winding-up petitions, administration notices, and dissolution filings before they impact your cash flow and supply chain.
+                    </p>
+                </div>
+
+                <div class="bg-white p-5 rounded-xl border border-slate-200">
+                    <div class="text-xl mb-2">📲</div>
+                    <h3 class="font-bold text-slate-900 text-sm mb-1">Real-Time Dispatch</h3>
+                    <p class="text-xs leading-relaxed text-slate-500">
+                        Audit on-demand or receive automated alerts instantly via Telegram and email whenever a tracked entity changes legal standing.
+                    </p>
+                </div>
+            </div>
+
+            <div class="text-center text-xs text-slate-400">
+                <p>© 2026 UK Company Radar. Enterprise Insolvency & Entity Intelligence. Data powered by Companies House.</p>
+            </div>
+        </footer>
+
+    </main>
+
+</body>
+</html>
