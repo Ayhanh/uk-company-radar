@@ -6,6 +6,7 @@ import asyncio
 from datetime import date
 from typing import Optional
 
+import requests
 import httpx
 from fastapi import FastAPI, Request, Form, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -20,7 +21,6 @@ ADMIN_EMAILS = [os.getenv("ADMIN_EMAIL", "ayhan.hakyemez@gmail.com").strip().low
 
 DB_NAME = "companies.db"
 
-# Uvicorn bu 'app' nesnesini arar:
 app = FastAPI(title="UK Company Radar")
 templates = Jinja2Templates(directory="templates")
 
@@ -97,9 +97,8 @@ def verify_password(stored_hash: str, password: str) -> bool:
 # ---------------------------------------------------------
 # TELEGRAM BILDIRIM
 # ---------------------------------------------------------
-async def send_telegram_alert(chat_id: str, message: str):
+def send_telegram_sync(chat_id: str, message: str):
     if not chat_id or not TELEGRAM_BOT_TOKEN:
-        print("[Telegram Notice]: Chat ID veya bot token eksik.")
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
@@ -108,12 +107,9 @@ async def send_telegram_alert(chat_id: str, message: str):
         "parse_mode": "HTML"
     }
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(url, json=payload)
-            if resp.status_code != 200:
-                print(f"[Telegram Error]: {resp.status_code} - {resp.text}")
+        requests.post(url, json=payload, timeout=5)
     except Exception as e:
-        print(f"[Telegram Alert Exception]: {e}")
+        print(f"[Telegram Alert Error]: {e}")
 
 # ---------------------------------------------------------
 # KULLANICI & KOTA
@@ -167,43 +163,34 @@ def increment_search_count(identifier: str):
     conn.close()
 
 # ---------------------------------------------------------
-# COMPANIES HOUSE API
+# COMPANIES HOUSE API (YARIM SAAT ÖNCE ÇALIŞAN ORİJİNAL REQUESTS YAPISI)
 # ---------------------------------------------------------
-async def search_companies_house(query: str):
+def search_companies_house(query: str):
     if not COMPANIES_HOUSE_API_KEY:
-        print("[Companies House Error]: COMPANIES_HOUSE_API_KEY tanimli degil!")
         return []
     url = f"https://api.company-information.service.gov.uk/search/companies?q={query}"
-    auth = httpx.BasicAuth(username=COMPANIES_HOUSE_API_KEY, password="")
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            res = await client.get(url, auth=auth)
-            print(f"[Companies House Status]: {res.status_code}")
-            if res.status_code == 200:
-                data = res.json()
-                return data.get("items", [])
-            else:
-                print(f"[Companies House Response Body]: {res.text}")
+        res = requests.get(url, auth=(COMPANIES_HOUSE_API_KEY, ""), timeout=8)
+        if res.status_code == 200:
+            return res.json().get("items", [])
     except Exception as e:
-        print(f"[Companies House Exception]: {e}")
+        print(f"[Companies House Error]: {e}")
     return []
 
-async def get_company_profile(company_number: str):
+def get_company_profile(company_number: str):
     if not COMPANIES_HOUSE_API_KEY:
         return None
     url = f"https://api.company-information.service.gov.uk/company/{company_number}"
-    auth = httpx.BasicAuth(username=COMPANIES_HOUSE_API_KEY, password="")
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            res = await client.get(url, auth=auth)
-            if res.status_code == 200:
-                return res.json()
+        res = requests.get(url, auth=(COMPANIES_HOUSE_API_KEY, ""), timeout=8)
+        if res.status_code == 200:
+            return res.json()
     except Exception as e:
         print(f"[Companies House Profile Error]: {e}")
     return None
 
 # ---------------------------------------------------------
-# ARKA PLAN GOREVI
+# OTOMATIK ARKA PLAN IZLEME
 # ---------------------------------------------------------
 async def automated_background_monitor():
     while True:
@@ -219,7 +206,7 @@ async def automated_background_monitor():
             items = cursor.fetchall()
             
             for item in items:
-                live_profile = await get_company_profile(item["company_number"])
+                live_profile = get_company_profile(item["company_number"])
                 if live_profile:
                     new_status = live_profile.get("company_status", "unknown")
                     old_status = item["status"]
@@ -234,9 +221,9 @@ async def automated_background_monitor():
                                 f"<b>Company:</b> {item['company_name']} ({item['company_number']})\n"
                                 f"<b>Previous Status:</b> {old_status.upper()}\n"
                                 f"<b>New Status:</b> ⚠️ <b>{new_status.upper()}</b>\n\n"
-                                f"<i>Immediate attention recommended. Check Companies House filing.</i>"
+                                f"<i>Immediate attention recommended. Check official Companies House filing.</i>"
                             )
-                            await send_telegram_alert(item["telegram_chat_id"], alert_msg)
+                            send_telegram_sync(item["telegram_chat_id"], alert_msg)
             conn.close()
         except Exception as e:
             print(f"[Background Monitor Error]: {e}")
@@ -273,7 +260,7 @@ async def index(request: Request, q: Optional[str] = None):
         
     search_results = []
     if q and not search_limit_reached:
-        search_results = await search_companies_house(q.strip())
+        search_results = search_companies_house(q.strip())
         increment_search_count(identifier)
         if not is_pro:
             search_count += 1
@@ -339,6 +326,7 @@ async def track_company(
     conn.commit()
     conn.close()
     
+    # Anlık Telegram Bildirimi
     if user.get("telegram_chat_id"):
         welcome_alert = (
             f"🛡️ <b>UK Company Radar | Monitoring Active</b>\n\n"
@@ -346,7 +334,7 @@ async def track_company(
             f"<b>Current Legal Status:</b> {status.upper()}\n\n"
             f"✅ <i>24/7 automated insolvency monitoring is now active. You will receive an instant notification here if this entity enters liquidation, administration, or strike-off.</i>"
         )
-        asyncio.create_task(send_telegram_alert(user["telegram_chat_id"], welcome_alert))
+        send_telegram_sync(user["telegram_chat_id"], welcome_alert)
 
     return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
 
@@ -430,7 +418,7 @@ async def register(
             f"Your Telegram Chat ID has been linked successfully.\n"
             f"Automated monitoring will dispatch alerts directly here."
         )
-        asyncio.create_task(send_telegram_alert(chat_id_clean, reg_msg))
+        send_telegram_sync(chat_id_clean, reg_msg)
     
     response = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
     response.set_cookie("session_id", session_id, max_age=30*86400, httponly=True)
