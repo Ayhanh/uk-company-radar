@@ -53,10 +53,10 @@
                         Sign Out
                     </a>
                 {% else %}
-                    <a href="/auth" class="text-xs font-semibold text-slate-700 hover:text-slate-900 px-3 py-2">
+                    <a href="/auth?mode=login" class="text-xs font-semibold text-slate-700 hover:text-slate-900 px-3 py-2">
                         Sign In
                     </a>
-                    <a href="/auth" class="text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-xl shadow-sm transition">
+                    <a href="/auth?mode=register" class="text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-xl shadow-sm transition">
                         Create Free Account
                     </a>
                 {% endif %}
