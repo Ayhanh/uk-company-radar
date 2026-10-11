@@ -9,6 +9,7 @@ from datetime import date
 from typing import Optional
 
 import requests
+from dotenv import load_dotenv
 from fastapi import FastAPI, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -17,6 +18,7 @@ from fastapi.templating import Jinja2Templates
 # KONFIGURASYON & SABİT DEĞİŞKENLER
 # ---------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")
 DB_FILE = BASE_DIR / "companies.db"
 BASE_URL = "https://api.company-information.service.gov.uk"
 
