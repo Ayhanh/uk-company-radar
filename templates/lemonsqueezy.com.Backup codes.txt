@@ -1,0 +1,16 @@
+Two-Factor Authentication
+
+When 2FA is enabled, you will be asked for a secure, random token when logging into your Lemon Squeezy account.
+
+Backup codes
+
+Save the backup codes below and store them in a secure location, as they will not be displayed again. You can use these to log into your Lemon Squeezy account if you lose access to your authenticator app.
+
+Pox96p2su5-hA1v05lWHj
+NUHLD3oW6r-OtxCvp1Yii
+qua1VSoJyO-dOaoDqMd3Q
+kclemFNU2r-Ai4wTk8ZZJ
+xS20jxVG7z-pd0yymMU7c
+nFWqqE90Ew-RIBEqxcOxc
+03S5N4NbYs-douzlhxZM2
+th4IcvIAA1-vtHVbOlQyM
