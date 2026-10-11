@@ -8,7 +8,7 @@ from datetime import date
 from typing import Optional
 
 import requests
-from fastapi import FastAPI, Request, Form, status
+from fastapi import FastAPI, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
@@ -19,7 +19,6 @@ BASE_DIR = Path(__file__).resolve().parent
 DB_FILE = BASE_DIR / "companies.db"
 BASE_URL = "https://api.company-information.service.gov.uk"
 
-# Ortam değişkeni yoksa doğrudan sizin anahtarlarınızı kullanır:
 COMPANIES_HOUSE_API_KEY = os.getenv("COMPANIES_HOUSE_API_KEY", "109c448e-0d41-4f59-8651-2eab715f81fa").strip()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8751754421:AAHN2ta1wD-1LAGKf7Juyao2ggmKVqkwqlI").strip()
 SECRET_KEY = os.getenv("SECRET_KEY", "super-secret-uk-company-radar-key-change-in-prod")
@@ -310,13 +309,13 @@ async def track_company(
     request: Request, 
     company_number: str = Form(...), 
     company_name: str = Form(...), 
-    status: str = Form(...),
+    status: str = Form(..., alias="status"),
     type: str = Form(None),
     jurisdiction: str = Form(None)
 ):
     user = get_current_user(request)
     if not user:
-        return RedirectResponse(url="/auth", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse(url="/auth", status_code=303)
         
     conn = get_db()
     cursor = conn.cursor()
@@ -325,7 +324,7 @@ async def track_company(
     
     if not user.get("is_pro") and count >= 3:
         conn.close()
-        return RedirectResponse(url="/?limit_reached=1", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse(url="/?limit_reached=1", status_code=303)
         
     cursor.execute("""
         INSERT INTO watchlist (user_id, company_number, company_name, status, type, jurisdiction)
@@ -334,7 +333,7 @@ async def track_company(
     conn.commit()
     conn.close()
     
-    # Telegram Bildirimi Gönder
+    # Telegram Anlık Bildirimi
     if user.get("telegram_chat_id"):
         welcome_alert = (
             f"🛡️ <b>UK Company Radar | Monitoring Active</b>\n\n"
@@ -344,20 +343,20 @@ async def track_company(
         )
         send_telegram_sync(user["telegram_chat_id"], welcome_alert)
 
-    return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(url="/", status_code=303)
 
 @app.post("/untrack")
 async def untrack_company(request: Request, company_id: int = Form(...)):
     user = get_current_user(request)
     if not user:
-        return RedirectResponse(url="/auth", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse(url="/auth", status_code=303)
         
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("DELETE FROM watchlist WHERE id = ? AND user_id = ?", (company_id, user["id"]))
     conn.commit()
     conn.close()
-    return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(url="/", status_code=303)
 
 # ---------------------------------------------------------
 # AUTH ROTALARI
@@ -366,7 +365,7 @@ async def untrack_company(request: Request, company_id: int = Form(...)):
 async def auth_page(request: Request):
     user = get_current_user(request)
     if user:
-        return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse(url="/", status_code=303)
     return templates.TemplateResponse(
         request=request,
         name="auth.html",
@@ -428,7 +427,7 @@ async def register(
         )
         send_telegram_sync(chat_id_clean, reg_msg)
     
-    response = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+    response = RedirectResponse(url="/", status_code=303)
     response.set_cookie("session_id", session_id, max_age=30*86400, httponly=True)
     return response
 
@@ -453,7 +452,7 @@ async def login(request: Request, email: str = Form(...), password: str = Form(.
     conn.commit()
     conn.close()
     
-    response = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+    response = RedirectResponse(url="/", status_code=303)
     response.set_cookie("session_id", session_id, max_age=30*86400, httponly=True)
     return response
 
@@ -467,6 +466,6 @@ async def logout(request: Request):
         conn.commit()
         conn.close()
         
-    response = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+    response = RedirectResponse(url="/", status_code=303)
     response.delete_cookie("session_id")
     return response
