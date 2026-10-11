@@ -89,7 +89,7 @@
         </div>
         {% endif %}
 
-        <!-- KOTA VE PAYWALL BİLDİRİMLERİ -->
+        <!-- KOTA VE PAYWALL BİLDİRİMLERİ (LEMON SQUEEZY CHECKOUT BAĞLANTISI) -->
         {% if search_limit_reached %}
         <div class="bg-rose-50 border border-rose-200 rounded-2xl p-4 sm:p-5 text-rose-950 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
@@ -98,8 +98,8 @@
                     You have reached your daily search capacity. Resets at midnight UTC, or upgrade to Pro for unlimited instant lookups.
                 </p>
             </div>
-            <a href="mailto:sales@ukcompanyradar.com?subject=Upgrade%20to%20Pro" class="inline-flex justify-center items-center whitespace-nowrap bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs py-2.5 px-5 rounded-xl shadow-sm transition">
-                Unlock Unlimited Searches →
+            <a href="https://ukcompanyradar.lemonsqueezy.com/checkout/buy/106feac0-8826-48b3-a902-4e7e9a54f9ed" target="_blank" class="inline-flex justify-center items-center whitespace-nowrap bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs py-2.5 px-5 rounded-xl shadow-sm transition">
+                Unlock Unlimited Searches (Upgrade Pro) →
             </a>
         </div>
         {% endif %}
@@ -112,7 +112,7 @@
                     Free accounts can track up to 3 UK entities. Upgrade to Pro for unlimited entity tracking and continuous automated audits.
                 </p>
             </div>
-            <a href="mailto:sales@ukcompanyradar.com?subject=Upgrade%20to%20Pro" class="inline-flex justify-center items-center whitespace-nowrap bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-2.5 px-5 rounded-xl shadow-sm transition">
+            <a href="https://ukcompanyradar.lemonsqueezy.com/checkout/buy/106feac0-8826-48b3-a902-4e7e9a54f9ed" target="_blank" class="inline-flex justify-center items-center whitespace-nowrap bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-2.5 px-5 rounded-xl shadow-sm transition">
                 Upgrade to Pro →
             </a>
         </div>
@@ -258,7 +258,7 @@
         </section>
         {% endif %}
 
-        <!-- SAYFA ALTI AÇIKLAMA KARTLARI (EMAIL METNİ KALDIRILDI) -->
+        <!-- SAYFA ALTI AÇIKLAMA KARTLARI -->
         <section class="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">
             <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
                 <div class="text-2xl mb-2">⚡</div>
@@ -285,9 +285,61 @@
 
     </main>
 
-    <footer class="border-t border-slate-200 bg-white py-6 mt-12 text-center text-xs text-slate-400">
-        © 2026 UK Company Radar. Enterprise Insolvency & Entity Intelligence. Data powered by Companies House.
+    <!-- FOOTER & DESTEK / SORUN BİLDİR -->
+    <footer class="border-t border-slate-200 bg-white py-6 mt-12 text-xs text-slate-400">
+        <div class="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div>
+                © 2026 UK Company Radar. Enterprise Insolvency & Entity Intelligence. Data powered by Companies House.
+            </div>
+            <div class="flex items-center gap-4">
+                <a href="https://t.me/uk_company_radar_bot" target="_blank" class="hover:text-slate-600 transition flex items-center gap-1 font-medium">
+                    <span>🤖</span> Telegram Bot
+                </a>
+                <span class="text-slate-300">•</span>
+                <button onclick="document.getElementById('supportModal').classList.remove('hidden')" class="hover:text-slate-700 font-semibold text-slate-500 transition flex items-center gap-1">
+                    <span>🛠️</span> Report an Issue / Support
+                </button>
+            </div>
+        </div>
     </footer>
+
+    <!-- SORUN BİLDİR MODAL / POP-UP (KİŞİSEL E-POSTA GİZLİ) -->
+    <div id="supportModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 relative">
+            <button onclick="document.getElementById('supportModal').classList.add('hidden')" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-lg font-bold">
+                ✕
+            </button>
+            
+            <div class="flex items-center gap-2 mb-2">
+                <div class="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center text-sm font-bold">
+                    🛠️
+                </div>
+                <h3 class="font-bold text-slate-900 text-sm">Report an Issue / Technical Support</h3>
+            </div>
+            
+            <p class="text-xs text-slate-500 mb-4 leading-relaxed">
+                Experiencing technical difficulties, false alerts, or tracking issues? Contact our operations desk directly via Telegram.
+            </p>
+
+            <div class="space-y-3">
+                <div class="p-3 bg-indigo-50/60 rounded-xl border border-indigo-100 text-xs text-indigo-950 flex items-center justify-between">
+                    <div>
+                        <p class="font-semibold">Direct Telegram Support Desk</p>
+                        <p class="text-[11px] text-indigo-700">Send logs, screenshots, and bot queries directly.</p>
+                    </div>
+                    <a href="https://t.me/uk_company_radar_bot" target="_blank" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-1.5 px-3 rounded-lg shadow-sm">
+                        Open Bot
+                    </a>
+                </div>
+
+                <div class="pt-2">
+                    <button type="button" onclick="document.getElementById('supportModal').classList.add('hidden')" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs py-2 rounded-xl transition">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
 
 </body>
 </html>
