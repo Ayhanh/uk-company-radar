@@ -1,427 +1,410 @@
-﻿<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>UK Company Radar - Know When Your Business Partners Are at Risk</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <style>
-        body { font-family: 'Inter', sans-serif; }
-    </style>
-</head>
-<body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col antialiased">
+﻿<!-- ÜST MENÜ & NAVBAR -->
+<header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+    <div class="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+        <a href="/" class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center font-bold text-lg shadow-sm">
+                🛡️
+            </div>
+            <div>
+                <span class="font-bold text-base text-slate-900 block leading-tight">UK Company Radar</span>
+                <span class="text-[11px] text-slate-500 font-medium">Early Risk & Insolvency Detection</span>
+            </div>
+        </a>
 
-    <!-- ÜST MENÜ & NAVBAR -->
-    <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
-        <div class="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
-            <a href="/" class="flex items-center gap-3">
-                <div class="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center font-bold text-lg shadow-sm">
-                    🛡️
+        <div class="flex items-center gap-3">
+            {% if user %}
+                <div class="hidden sm:flex items-center gap-2 mr-2">
+                    {% if user.is_admin %}
+                        <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                            👑 ADMIN (UNLIMITED)
+                        </span>
+                    {% elif is_pro %}
+                        <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                            ⭐ PRO PLAN
+                        </span>
+                    {% else %}
+                        <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                            FREE TIER
+                        </span>
+                    {% endif %}
+                    <span class="text-xs text-slate-500 font-medium">{{ user.email }}</span>
                 </div>
+
+                <div class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    Radar Active
+                </div>
+
+                <a href="/auth/logout" class="text-xs font-semibold text-slate-600 hover:text-slate-900 px-3 py-2 rounded-lg hover:bg-slate-100 transition">
+                    Sign Out
+                </a>
+            {% else %}
+                <a href="/auth?mode=login" class="text-xs font-semibold text-slate-700 hover:text-slate-900 px-3 py-2 rounded-lg hover:bg-slate-100 transition">
+                    Sign In
+                </a>
+                <a href="/auth?mode=register" class="text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-xl shadow-sm transition">
+                    Create Free Account
+                </a>
+            {% endif %}
+        </div>
+    </div>
+</header>
+
+<main class="max-w-6xl mx-auto px-4 py-8 flex-1 w-full space-y-8">
+
+    <!-- HERO BÖLÜMÜ (DEĞER ÖNERİSİ & FİNANSAL RİSK VURGUSU) -->
+    <section class="text-center max-w-3xl mx-auto pt-4 pb-2 space-y-3">
+        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-semibold tracking-wide">
+            <span>⚡</span> Real-Time Insolvency & Dissolution Early Warning
+        </div>
+        <h1 class="text-2xl sm:text-4xl font-extrabold text-slate-900 tracking-tight leading-tight">
+            Know When Your Business Partners <br class="hidden sm:inline"> Are at Risk.
+        </h1>
+        <p class="text-sm sm:text-base text-slate-600 leading-relaxed max-w-2xl mx-auto">
+            Monitor UK clients and suppliers for insolvency, winding-up notices, and strike-off actions. Get instant alerts before bad debt catches your business off guard.
+        </p>
+    </section>
+
+    <!-- KOTA VE PAYWALL BİLDİRİMLERİ -->
+    {% if search_limit_reached %}
+    <div class="bg-rose-50 border border-rose-200 rounded-2xl p-4 sm:p-5 text-rose-950 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+            <h4 class="font-bold text-sm text-rose-900">Daily Search Limit Reached ({{ search_count }}/{{ search_limit }})</h4>
+            <p class="text-xs text-rose-700 mt-1">
+                You have reached your daily search capacity. Resets at midnight UTC, or upgrade to Pro for unlimited instant risk audits.
+            </p>
+        </div>
+        <a href="https://ukcompanyradar.lemonsqueezy.com/checkout/buy/106feac0-8826-48b3-a902-4e7e9a54f9ed" target="_blank" class="inline-flex justify-center items-center whitespace-nowrap bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs py-2.5 px-5 rounded-xl shadow-sm transition">
+            Unlock Unlimited Searches →
+        </a>
+    </div>
+    {% endif %}
+
+    {% if watchlist_limit_reached %}
+    <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 sm:p-5 text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+            <h4 class="font-bold text-sm text-amber-900">Free Watchlist Limit Reached (3/3 Entities)</h4>
+            <p class="text-xs text-amber-800 mt-1">
+                Free tier monitors up to 3 UK entities. Upgrade to Pro for unlimited entity tracking and 24/7 automated risk dispatch.
+            </p>
+        </div>
+        <a href="https://ukcompanyradar.lemonsqueezy.com/checkout/buy/106feac0-8826-48b3-a902-4e7e9a54f9ed" target="_blank" class="inline-flex justify-center items-center whitespace-nowrap bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-2.5 px-5 rounded-xl shadow-sm transition">
+            Upgrade to Pro (Unlimited) →
+        </a>
+    </div>
+    {% endif %}
+
+    <!-- ARAMA FORMU -->
+    <section class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+            <h2 class="text-xs font-bold tracking-wider uppercase text-slate-500">SEARCH & AUDIT ANY UK ENTITY</h2>
+            <span class="inline-flex items-center text-xs px-2.5 py-1 rounded-full font-semibold {{ 'bg-rose-100 text-rose-700' if search_limit_reached else 'bg-slate-100 text-slate-700' }}">
+                {% if is_pro %}
+                    Daily Free Searches: Unlimited
+                {% else %}
+                    Daily Free Searches: {{ remaining_searches }}/{{ search_limit }}
+                {% endif %}
+            </span>
+        </div>
+
+        <form action="/" method="GET" class="flex flex-col sm:flex-row gap-3">
+            <input 
+                type="text" 
+                name="q" 
+                value="{{ query or '' }}" 
+                placeholder="Enter Company Name or Reg Number (e.g. Barclays, Dyson, 00048834)..." 
+                required 
+                class="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition"
+            >
+            <button type="submit" class="bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs py-2.5 px-6 rounded-xl shadow-sm transition flex items-center justify-center gap-2">
+                <span>🔍</span> Run Risk Search
+            </button>
+        </form>
+    </section>
+
+    <!-- ARAMA SONUÇLARI -->
+    {% if results %}
+    <section class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
+        <h3 class="text-xs font-bold tracking-wider uppercase text-slate-500">COMPANIES HOUSE VERIFIED RECORDS ({{ results|length }})</h3>
+        <div class="divide-y divide-slate-100">
+            {% for item in results %}
+            <div class="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
-                    <span class="font-bold text-base text-slate-900 block leading-tight">UK Company Radar</span>
-                    <span class="text-[11px] text-slate-500 font-medium">Early Risk & Insolvency Detection</span>
-                </div>
-            </a>
-
-            <div class="flex items-center gap-3">
-                {% if user %}
-                    <div class="hidden sm:flex items-center gap-2 mr-2">
-                        {% if user.is_admin %}
-                            <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                                👑 ADMIN (UNLIMITED)
-                            </span>
-                        {% elif is_pro %}
-                            <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                                ⭐ PRO PLAN
-                            </span>
-                        {% else %}
-                            <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
-                                FREE TIER
-                            </span>
+                    <div class="flex items-center gap-2">
+                        <span class="font-bold text-sm text-slate-900">{{ item.title }}</span>
+                        <span class="text-xs font-mono text-slate-500">#{{ item.company_number }}</span>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2 mt-1.5 text-xs text-slate-500">
+                        <span class="px-2 py-0.5 rounded text-[11px] font-semibold {{ 'bg-emerald-50 text-emerald-700 border border-emerald-200' if item.company_status == 'active' else 'bg-rose-50 text-rose-700 border border-rose-200' }}">
+                            {{ (item.company_status or 'unknown')|upper }}
+                        </span>
+                        <span>• {{ item.company_type or 'Limited' }}</span>
+                        {% if item.address_snippet %}
+                            <span>• {{ item.address_snippet }}</span>
                         {% endif %}
-                        <span class="text-xs text-slate-500 font-medium">{{ user.email }}</span>
                     </div>
+                </div>
 
-                    <div class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold">
-                        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                        Radar Active
+                <div>
+                    {% if user %}
+                        <form action="/track" method="POST">
+                            <input type="hidden" name="company_number" value="{{ item.company_number }}">
+                            <input type="hidden" name="company_name" value="{{ item.title }}">
+                            <input type="hidden" name="status" value="{{ item.company_status or 'active' }}">
+                            <input type="hidden" name="type" value="{{ item.company_type or '' }}">
+                            <input type="hidden" name="jurisdiction" value="{{ item.address_snippet or '' }}">
+                            <button type="submit" class="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold py-2 px-4 rounded-xl shadow-sm transition flex items-center justify-center gap-1.5">
+                                <span>+</span> Add to Risk Radar
+                            </button>
+                        </form>
+                    {% else %}
+                        <a href="/auth?mode=login" class="w-full sm:w-auto inline-block text-center bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold py-2 px-4 rounded-xl transition">
+                            Sign In to Track
+                        </a>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+    {% elif query %}
+    <div class="bg-white border border-slate-200 rounded-2xl p-8 text-center text-sm text-slate-500">
+        No official Companies House records found for "<b>{{ query }}</b>".
+    </div>
+    {% endif %}
+
+    <!-- TAKİP EDİLEN PORTFÖY LİSTESİ -->
+    {% if user %}
+    <section class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
+        <div class="flex items-center justify-between">
+            <div>
+                <h3 class="text-xs font-bold tracking-wider uppercase text-slate-500">ACTIVE RISK WATCHLIST</h3>
+                <span class="text-xs text-slate-400">Continuous 24/7 Insolvency & Dissolution Radar</span>
+            </div>
+            <span class="text-xs font-semibold text-slate-600">
+                {% if is_pro %}
+                    Portfolio: {{ watchlist|length }} Entities (Unlimited Pro)
+                {% else %}
+                    Portfolio: {{ watchlist|length }}/3 Max (Free)
+                {% endif %}
+            </span>
+        </div>
+
+        {% if watchlist %}
+        <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs border-collapse">
+                <thead>
+                    <tr class="border-b border-slate-200 text-slate-400 uppercase tracking-wider text-[11px]">
+                        <th class="py-3 font-semibold w-24">Status</th>
+                        <th class="py-3 font-semibold">Company Name</th>
+                        <th class="py-3 font-semibold min-w-[120px]">Reg No</th>
+                        <th class="py-3 font-semibold">Jurisdiction / Type</th>
+                        <th class="py-3 font-semibold text-right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    {% for item in watchlist %}
+                    <tr>
+                        <td class="py-3.5 pr-2">
+                            <span class="px-2 py-0.5 rounded text-[11px] font-bold {{ 'bg-emerald-50 text-emerald-700 border border-emerald-200' if item.status == 'active' else 'bg-rose-50 text-rose-700 border border-rose-200' }}">
+                                {{ item.status|upper }}
+                            </span>
+                        </td>
+                        <td class="py-3.5 pr-4 font-bold text-slate-900">{{ item.company_name }}</td>
+                        <td class="py-3.5 pr-4 font-mono text-slate-600 tracking-wide font-medium whitespace-nowrap">{{ item.company_number }}</td>
+                        <td class="py-3.5 pr-4 text-slate-500">{{ item.jurisdiction or item.type or 'UK Entity' }}</td>
+                        <td class="py-3.5 text-right whitespace-nowrap">
+                            <form action="/untrack" method="POST" class="inline">
+                                <input type="hidden" name="company_id" value="{{ item.id }}">
+                                <button type="submit" class="text-rose-600 hover:text-rose-800 font-semibold text-xs">
+                                    Remove
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="py-8 text-center text-xs text-slate-400">
+            You are not monitoring any entities yet. Search above and click <b>"Add to Risk Radar"</b> to activate automated status tracking.
+        </div>
+        {% endif %}
+    </section>
+    {% endif %}
+
+    <!-- TELEGRAM BİLDİRİM KARTI (YUMUŞATILMIŞ & DEĞER ODAKLI MOBİL ALARM ÖZELLİĞİ) -->
+    {% if user %}
+    <div class="bg-slate-900 text-white p-5 rounded-2xl shadow-sm border border-slate-800 flex flex-col md:flex-row items-center justify-between gap-4">
+        <div class="flex items-center gap-3.5 text-left w-full md:w-auto">
+            <div class="w-10 h-10 rounded-xl bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-xl flex-shrink-0">
+                📲
+            </div>
+            <div>
+                <h3 class="text-xs font-bold uppercase tracking-wider text-indigo-300">
+                    Optional: Enable Instant Mobile Alerts
+                </h3>
+                <p class="text-xs text-slate-300 mt-0.5">
+                    Connect our official Telegram bot to receive pocket alerts the moment any watched company files for liquidation or strike-off.
+                </p>
+            </div>
+        </div>
+        <a href="https://t.me/uk_company_radar_bot" target="_blank" class="w-full md:w-auto text-center whitespace-nowrap bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs py-2 px-5 rounded-xl transition">
+            Connect Telegram Bot →
+        </a>
+    </div>
+    {% endif %}
+
+    <!-- FİYATLANDIRMA / PLAN SEÇİM TABLOSU (ŞEFFAF VE DEĞER ODAKLI) -->
+    <section class="pt-4">
+        <div class="text-center max-w-xl mx-auto mb-8 space-y-2">
+            <h3 class="text-xs font-bold tracking-wider uppercase text-indigo-600">TRANSPARENT PRICING</h3>
+            <h2 class="text-xl sm:text-2xl font-bold text-slate-900">Protect Your Cash Flow Without Complex Contracts</h2>
+            <p class="text-xs text-slate-500">Pick the plan that fits your business. Cancel or upgrade anytime.</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+            <!-- FREE TIER -->
+            <div class="bg-white border border-slate-200 rounded-2xl p-6 flex flex-col justify-between shadow-sm">
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-sm font-bold text-slate-900">Free Tier</span>
+                        <span class="text-[11px] font-semibold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">Trial / Basic</span>
                     </div>
-
-                    <a href="/auth/logout" class="text-xs font-semibold text-slate-600 hover:text-slate-900 px-3 py-2 rounded-lg hover:bg-slate-100 transition">
-                        Sign Out
+                    <div class="text-2xl font-extrabold text-slate-900 mb-4">₺0 <span class="text-xs font-normal text-slate-500">/ forever</span></div>
+                    <ul class="text-xs text-slate-600 space-y-2.5 mb-6">
+                        <li class="flex items-center gap-2"><span>✓</span> 3 Daily Registry Searches</li>
+                        <li class="flex items-center gap-2"><span>✓</span> Track up to 3 UK entities</li>
+                        <li class="flex items-center gap-2"><span>✓</span> Telegram risk dispatch alerts</li>
+                        <li class="flex items-center gap-2 text-slate-400"><span>✕</span> Priority background audit frequency</li>
+                    </ul>
+                </div>
+                {% if not user %}
+                    <a href="/auth?mode=register" class="w-full text-center bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs py-2.5 rounded-xl transition">
+                        Get Started Free
                     </a>
                 {% else %}
-                    <a href="/auth" class="text-xs font-semibold text-slate-700 hover:text-slate-900 px-3 py-2">
-                        Sign In
-                    </a>
-                    <a href="/auth" class="text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-xl shadow-sm transition">
-                        Create Free Account
+                    <div class="w-full text-center bg-slate-50 text-slate-400 font-semibold text-xs py-2.5 rounded-xl border border-slate-200">
+                        Current Base Tier
+                    </div>
+                {% endif %}
+            </div>
+
+            <!-- PRO PLAN (AYLIK & YILLIK SEÇENEKLİ) -->
+            <div class="bg-white border-2 border-slate-900 rounded-2xl p-6 flex flex-col justify-between shadow-md relative">
+                <span class="absolute -top-3 right-6 bg-slate-900 text-white text-[10px] font-extrabold px-3 py-0.5 rounded-full uppercase tracking-wider">
+                    Recommended for B2B
+                </span>
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-sm font-bold text-slate-900">Radar Pro</span>
+                        <span class="text-[11px] font-semibold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">Full Protection</span>
+                    </div>
+                    <div class="flex items-baseline gap-2 mb-4">
+                        <span class="text-2xl font-extrabold text-slate-900">₺24.99</span>
+                        <span class="text-xs text-slate-500">/ month</span>
+                        <span class="text-xs font-semibold text-emerald-600 ml-auto">or ₺249.99/yr (Save 20%)</span>
+                    </div>
+                    <ul class="text-xs text-slate-700 space-y-2.5 mb-6 font-medium">
+                        <li class="flex items-center gap-2"><span>✓</span> <b>Unlimited</b> registry searches</li>
+                        <li class="flex items-center gap-2"><span>✓</span> <b>Unlimited</b> entity risk tracking</li>
+                        <li class="flex items-center gap-2"><span>✓</span> 24/7 continuous Companies House sync</li>
+                        <li class="flex items-center gap-2"><span>✓</span> Real-time instant insolvency push alerts</li>
+                    </ul>
+                </div>
+                {% if is_pro %}
+                    <div class="w-full text-center bg-emerald-50 text-emerald-700 font-bold text-xs py-2.5 rounded-xl border border-emerald-200">
+                        ✓ Your Pro Subscription is Active
+                    </div>
+                {% else %}
+                    <a href="https://ukcompanyradar.lemonsqueezy.com/checkout/buy/106feac0-8826-48b3-a902-4e7e9a54f9ed" target="_blank" class="w-full text-center bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-2.5 rounded-xl shadow transition">
+                        Upgrade to Pro (Monthly or Yearly) →
                     </a>
                 {% endif %}
             </div>
         </div>
-    </header>
+    </section>
 
-    <main class="max-w-6xl mx-auto px-4 py-8 flex-1 w-full space-y-8">
-
-        <!-- HERO BÖLÜMÜ (DEĞER ÖNERİSİ & FİNANSAL RİSK VURGUSU) -->
-        <section class="text-center max-w-3xl mx-auto pt-4 pb-2 space-y-3">
-            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-semibold tracking-wide">
-                <span>⚡</span> Real-Time Insolvency & Dissolution Early Warning
-            </div>
-            <h1 class="text-2xl sm:text-4xl font-extrabold text-slate-900 tracking-tight leading-tight">
-                Know When Your Business Partners <br class="hidden sm:inline"> Are at Risk.
-            </h1>
-            <p class="text-sm sm:text-base text-slate-600 leading-relaxed max-w-2xl mx-auto">
-                Monitor UK clients and suppliers for insolvency, winding-up notices, and strike-off actions. Get instant alerts before bad debt catches your business off guard.
+    <!-- SİSTEM GÜVEN VE DEĞER AÇIKLAMALARI -->
+    <section class="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">
+        <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+            <div class="text-2xl mb-2">⚡</div>
+            <h4 class="font-bold text-sm text-slate-900 mb-1">Direct Registry Sync</h4>
+            <p class="text-xs text-slate-500 leading-relaxed">
+                Connected to UK Companies House registers. Continuously inspects corporate standing, dissolution notices, and officer changes.
             </p>
-        </section>
+        </div>
+        <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+            <div class="text-2xl mb-2">🚨</div>
+            <h4 class="font-bold text-sm text-slate-900 mb-1">Early Insolvency Radar</h4>
+            <p class="text-xs text-slate-500 leading-relaxed">
+                Identify winding-up petitions, administration filings, and voluntary strike-offs before invoices go unpaid.
+            </p>
+        </div>
+        <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+            <div class="text-2xl mb-2">📲</div>
+            <h4 class="font-bold text-sm text-slate-900 mb-1">Zero-Noise Alerts</h4>
+            <p class="text-xs text-slate-500 leading-relaxed">
+                Only receive notifications when critical legal or solvency changes take place in your monitored portfolio.
+            </p>
+        </div>
+    </section>
 
-        <!-- KOTA VE PAYWALL BİLDİRİMLERİ -->
-        {% if search_limit_reached %}
-        <div class="bg-rose-50 border border-rose-200 rounded-2xl p-4 sm:p-5 text-rose-950 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-                <h4 class="font-bold text-sm text-rose-900">Daily Search Limit Reached ({{ search_count }}/{{ search_limit }})</h4>
-                <p class="text-xs text-rose-700 mt-1">
-                    You have reached your daily search capacity. Resets at midnight UTC, or upgrade to Pro for unlimited instant risk audits.
-                </p>
-            </div>
-            <a href="https://ukcompanyradar.lemonsqueezy.com/checkout/buy/106feac0-8826-48b3-a902-4e7e9a54f9ed" target="_blank" class="inline-flex justify-center items-center whitespace-nowrap bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs py-2.5 px-5 rounded-xl shadow-sm transition">
-                Unlock Unlimited Searches →
+</main>
+
+<!-- FOOTER & DESTEK KANALI -->
+<footer class="border-t border-slate-200 bg-white py-6 mt-12 text-xs text-slate-400">
+    <div class="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div>
+            © 2026 UK Company Radar. Enterprise Insolvency & Entity Intelligence. Data powered by Companies House.
+        </div>
+        <div class="flex items-center gap-4">
+            <a href="https://t.me/uk_company_radar_bot" target="_blank" class="hover:text-slate-600 transition flex items-center gap-1 font-medium">
+                <span>🤖</span> Telegram Bot
             </a>
-        </div>
-        {% endif %}
-
-        {% if watchlist_limit_reached %}
-        <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 sm:p-5 text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-                <h4 class="font-bold text-sm text-amber-900">Free Watchlist Limit Reached (3/3 Entities)</h4>
-                <p class="text-xs text-amber-800 mt-1">
-                    Free tier monitors up to 3 UK entities. Upgrade to Pro for unlimited entity tracking and 24/7 automated risk dispatch.
-                </p>
-            </div>
-            <a href="https://ukcompanyradar.lemonsqueezy.com/checkout/buy/106feac0-8826-48b3-a902-4e7e9a54f9ed" target="_blank" class="inline-flex justify-center items-center whitespace-nowrap bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-2.5 px-5 rounded-xl shadow-sm transition">
-                Upgrade to Pro (Unlimited) →
-            </a>
-        </div>
-        {% endif %}
-
-        <!-- ARAMA FORMU -->
-        <section class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
-                <h2 class="text-xs font-bold tracking-wider uppercase text-slate-500">SEARCH & AUDIT ANY UK ENTITY</h2>
-                <span class="inline-flex items-center text-xs px-2.5 py-1 rounded-full font-semibold {{ 'bg-rose-100 text-rose-700' if search_limit_reached else 'bg-slate-100 text-slate-700' }}">
-                    {% if is_pro %}
-                        Daily Free Searches: Unlimited
-                    {% else %}
-                        Daily Free Searches: {{ remaining_searches }}/{{ search_limit }}
-                    {% endif %}
-                </span>
-            </div>
-
-            <form action="/" method="GET" class="flex flex-col sm:flex-row gap-3">
-                <input 
-                    type="text" 
-                    name="q" 
-                    value="{{ query or '' }}" 
-                    placeholder="Enter Company Name or Reg Number (e.g. Barclays, Dyson, 00048834)..." 
-                    required 
-                    class="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition"
-                >
-                <button type="submit" class="bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs py-2.5 px-6 rounded-xl shadow-sm transition flex items-center justify-center gap-2">
-                    <span>🔍</span> Run Risk Search
-                </button>
-            </form>
-        </section>
-
-        <!-- ARAMA SONUÇLARI -->
-        {% if results %}
-        <section class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
-            <h3 class="text-xs font-bold tracking-wider uppercase text-slate-500">COMPANIES HOUSE VERIFIED RECORDS ({{ results|length }})</h3>
-            <div class="divide-y divide-slate-100">
-                {% for item in results %}
-                <div class="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div>
-                        <div class="flex items-center gap-2">
-                            <span class="font-bold text-sm text-slate-900">{{ item.title }}</span>
-                            <span class="text-xs font-mono text-slate-500">#{{ item.company_number }}</span>
-                        </div>
-                        <div class="flex flex-wrap items-center gap-2 mt-1.5 text-xs text-slate-500">
-                            <span class="px-2 py-0.5 rounded text-[11px] font-semibold {{ 'bg-emerald-50 text-emerald-700 border border-emerald-200' if item.company_status == 'active' else 'bg-rose-50 text-rose-700 border border-rose-200' }}">
-                                {{ (item.company_status or 'unknown')|upper }}
-                            </span>
-                            <span>• {{ item.company_type or 'Limited' }}</span>
-                            {% if item.address_snippet %}
-                                <span>• {{ item.address_snippet }}</span>
-                            {% endif %}
-                        </div>
-                    </div>
-
-                    <div>
-                        {% if user %}
-                            <form action="/track" method="POST">
-                                <input type="hidden" name="company_number" value="{{ item.company_number }}">
-                                <input type="hidden" name="company_name" value="{{ item.title }}">
-                                <input type="hidden" name="status" value="{{ item.company_status or 'active' }}">
-                                <input type="hidden" name="type" value="{{ item.company_type or '' }}">
-                                <input type="hidden" name="jurisdiction" value="{{ item.address_snippet or '' }}">
-                                <button type="submit" class="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold py-2 px-4 rounded-xl shadow-sm transition flex items-center justify-center gap-1.5">
-                                    <span>+</span> Add to Risk Radar
-                                </button>
-                            </form>
-                        {% else %}
-                            <a href="/auth" class="w-full sm:w-auto inline-block text-center bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold py-2 px-4 rounded-xl transition">
-                                Sign In to Track
-                            </a>
-                        {% endif %}
-                    </div>
-                </div>
-                {% endfor %}
-            </div>
-        </section>
-        {% elif query %}
-        <div class="bg-white border border-slate-200 rounded-2xl p-8 text-center text-sm text-slate-500">
-            No official Companies House records found for "<b>{{ query }}</b>".
-        </div>
-        {% endif %}
-
-        <!-- TAKİP EDİLEN PORTFÖY LİSTESİ -->
-        {% if user %}
-        <section class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
-            <div class="flex items-center justify-between">
-                <div>
-                    <h3 class="text-xs font-bold tracking-wider uppercase text-slate-500">ACTIVE RISK WATCHLIST</h3>
-                    <span class="text-xs text-slate-400">Continuous 24/7 Insolvency & Dissolution Radar</span>
-                </div>
-                <span class="text-xs font-semibold text-slate-600">
-                    {% if is_pro %}
-                        Portfolio: {{ watchlist|length }} Entities (Unlimited Pro)
-                    {% else %}
-                        Portfolio: {{ watchlist|length }}/3 Max (Free)
-                    {% endif %}
-                </span>
-            </div>
-
-            {% if watchlist %}
-            <div class="overflow-x-auto">
-                <table class="w-full text-left text-xs border-collapse">
-                    <thead>
-                        <tr class="border-b border-slate-200 text-slate-400 uppercase tracking-wider text-[11px]">
-                            <th class="py-3 font-semibold">Status</th>
-                            <th class="py-3 font-semibold">Company Name</th>
-                            <th class="py-3 font-semibold">Reg No</th>
-                            <th class="py-3 font-semibold">Jurisdiction / Type</th>
-                            <th class="py-3 font-semibold text-right">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100">
-                        {% for item in watchlist %}
-                        <tr>
-                            <td class="py-3.5">
-                                <span class="px-2 py-0.5 rounded text-[11px] font-bold {{ 'bg-emerald-50 text-emerald-700 border border-emerald-200' if item.status == 'active' else 'bg-rose-50 text-rose-700 border border-rose-200' }}">
-                                    {{ item.status|upper }}
-                                </span>
-                            </td>
-                            <td class="py-3.5 font-bold text-slate-900">{{ item.company_name }}</td>
-                            <td class="py-3.5 font-mono text-slate-500">{{ item.company_number }}</td>
-                            <td class="py-3.5 text-slate-500">{{ item.jurisdiction or item.type or 'UK Entity' }}</td>
-                            <td class="py-3.5 text-right">
-                                <form action="/untrack" method="POST" class="inline">
-                                    <input type="hidden" name="company_id" value="{{ item.id }}">
-                                    <button type="submit" class="text-rose-600 hover:text-rose-800 font-semibold text-xs">
-                                        Remove
-                                    </button>
-                                </form>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            {% else %}
-            <div class="py-8 text-center text-xs text-slate-400">
-                You are not monitoring any entities yet. Search above and click <b>"Add to Risk Radar"</b> to activate automated status tracking.
-            </div>
-            {% endif %}
-        </section>
-        {% endif %}
-
-        <!-- TELEGRAM BİLDİRİM KARTI (YUMUŞATILMIŞ & DEĞER ODAKLI MOBİL ALARM ÖZELLİĞİ) -->
-        {% if user %}
-        <div class="bg-slate-900 text-white p-5 rounded-2xl shadow-sm border border-slate-800 flex flex-col md:flex-row items-center justify-between gap-4">
-            <div class="flex items-center gap-3.5 text-left w-full md:w-auto">
-                <div class="w-10 h-10 rounded-xl bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-xl flex-shrink-0">
-                    📲
-                </div>
-                <div>
-                    <h3 class="text-xs font-bold uppercase tracking-wider text-indigo-300">
-                        Optional: Enable Instant Mobile Alerts
-                    </h3>
-                    <p class="text-xs text-slate-300 mt-0.5">
-                        Connect our official Telegram bot to receive pocket alerts the moment any watched company files for liquidation or strike-off.
-                    </p>
-                </div>
-            </div>
-            <a href="https://t.me/uk_company_radar_bot" target="_blank" class="w-full md:w-auto text-center whitespace-nowrap bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs py-2 px-5 rounded-xl transition">
-                Connect Telegram Bot →
-            </a>
-        </div>
-        {% endif %}
-
-        <!-- FİYATLANDIRMA / PLAN SEÇİM TABLOSU (ŞEFFAF VE DEĞER ODAKLI) -->
-        <section class="pt-4">
-            <div class="text-center max-w-xl mx-auto mb-8 space-y-2">
-                <h3 class="text-xs font-bold tracking-wider uppercase text-indigo-600">TRANSPARENT PRICING</h3>
-                <h2 class="text-xl sm:text-2xl font-bold text-slate-900">Protect Your Cash Flow Without Complex Contracts</h2>
-                <p class="text-xs text-slate-500">Pick the plan that fits your business. Cancel or upgrade anytime.</p>
-            </div>
-
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
-                <!-- FREE TIER -->
-                <div class="bg-white border border-slate-200 rounded-2xl p-6 flex flex-col justify-between shadow-sm">
-                    <div>
-                        <div class="flex items-center justify-between mb-2">
-                            <span class="text-sm font-bold text-slate-900">Free Tier</span>
-                            <span class="text-[11px] font-semibold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">Trial / Basic</span>
-                        </div>
-                        <div class="text-2xl font-extrabold text-slate-900 mb-4">₺0 <span class="text-xs font-normal text-slate-500">/ forever</span></div>
-                        <ul class="text-xs text-slate-600 space-y-2.5 mb-6">
-                            <li class="flex items-center gap-2"><span>✓</span> 3 Daily Registry Searches</li>
-                            <li class="flex items-center gap-2"><span>✓</span> Track up to 3 UK entities</li>
-                            <li class="flex items-center gap-2"><span>✓</span> Telegram risk dispatch alerts</li>
-                            <li class="flex items-center gap-2 text-slate-400"><span>✕</span> Priority background audit frequency</li>
-                        </ul>
-                    </div>
-                    {% if not user %}
-                        <a href="/auth" class="w-full text-center bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs py-2.5 rounded-xl transition">
-                            Get Started Free
-                        </a>
-                    {% else %}
-                        <div class="w-full text-center bg-slate-50 text-slate-400 font-semibold text-xs py-2.5 rounded-xl border border-slate-200">
-                            Current Base Tier
-                        </div>
-                    {% endif %}
-                </div>
-
-                <!-- PRO PLAN (AYLIK & YILLIK SEÇENEKLİ) -->
-                <div class="bg-white border-2 border-slate-900 rounded-2xl p-6 flex flex-col justify-between shadow-md relative">
-                    <span class="absolute -top-3 right-6 bg-slate-900 text-white text-[10px] font-extrabold px-3 py-0.5 rounded-full uppercase tracking-wider">
-                        Recommended for B2B
-                    </span>
-                    <div>
-                        <div class="flex items-center justify-between mb-2">
-                            <span class="text-sm font-bold text-slate-900">Radar Pro</span>
-                            <span class="text-[11px] font-semibold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">Full Protection</span>
-                        </div>
-                        <div class="flex items-baseline gap-2 mb-4">
-                            <span class="text-2xl font-extrabold text-slate-900">₺24.99</span>
-                            <span class="text-xs text-slate-500">/ month</span>
-                            <span class="text-xs font-semibold text-emerald-600 ml-auto">or ₺249.99/yr (Save 20%)</span>
-                        </div>
-                        <ul class="text-xs text-slate-700 space-y-2.5 mb-6 font-medium">
-                            <li class="flex items-center gap-2"><span>✓</span> <b>Unlimited</b> registry searches</li>
-                            <li class="flex items-center gap-2"><span>✓</span> <b>Unlimited</b> entity risk tracking</li>
-                            <li class="flex items-center gap-2"><span>✓</span> 24/7 continuous Companies House sync</li>
-                            <li class="flex items-center gap-2"><span>✓</span> Real-time instant insolvency push alerts</li>
-                        </ul>
-                    </div>
-                    {% if is_pro %}
-                        <div class="w-full text-center bg-emerald-50 text-emerald-700 font-bold text-xs py-2.5 rounded-xl border border-emerald-200">
-                            ✓ Your Pro Subscription is Active
-                        </div>
-                    {% else %}
-                        <a href="https://ukcompanyradar.lemonsqueezy.com/checkout/buy/106feac0-8826-48b3-a902-4e7e9a54f9ed" target="_blank" class="w-full text-center bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-2.5 rounded-xl shadow transition">
-                            Upgrade to Pro (Monthly or Yearly) →
-                        </a>
-                    {% endif %}
-                </div>
-            </div>
-        </section>
-
-        <!-- SİSTEM GÜVEN VE DEĞER AÇIKLAMALARI -->
-        <section class="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">
-            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-                <div class="text-2xl mb-2">⚡</div>
-                <h4 class="font-bold text-sm text-slate-900 mb-1">Direct Registry Sync</h4>
-                <p class="text-xs text-slate-500 leading-relaxed">
-                    Connected to UK Companies House registers. Continuously inspects corporate standing, dissolution notices, and officer changes.
-                </p>
-            </div>
-            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-                <div class="text-2xl mb-2">🚨</div>
-                <h4 class="font-bold text-sm text-slate-900 mb-1">Early Insolvency Radar</h4>
-                <p class="text-xs text-slate-500 leading-relaxed">
-                    Identify winding-up petitions, administration filings, and voluntary strike-offs before invoices go unpaid.
-                </p>
-            </div>
-            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-                <div class="text-2xl mb-2">📲</div>
-                <h4 class="font-bold text-sm text-slate-900 mb-1">Zero-Noise Alerts</h4>
-                <p class="text-xs text-slate-500 leading-relaxed">
-                    Only receive notifications when critical legal or solvency changes take place in your monitored portfolio.
-                </p>
-            </div>
-        </section>
-
-    </main>
-
-    <!-- FOOTER & DESTEK KANALI -->
-    <footer class="border-t border-slate-200 bg-white py-6 mt-12 text-xs text-slate-400">
-        <div class="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div>
-                © 2026 UK Company Radar. Enterprise Insolvency & Entity Intelligence. Data powered by Companies House.
-            </div>
-            <div class="flex items-center gap-4">
-                <a href="https://t.me/uk_company_radar_bot" target="_blank" class="hover:text-slate-600 transition flex items-center gap-1 font-medium">
-                    <span>🤖</span> Telegram Bot
-                </a>
-                <span class="text-slate-300">•</span>
-                <button onclick="document.getElementById('supportModal').classList.remove('hidden')" class="hover:text-slate-700 font-semibold text-slate-500 transition flex items-center gap-1">
-                    <span>🛠️</span> Report an Issue / Support
-                </button>
-            </div>
-        </div>
-    </footer>
-
-    <!-- DESTEK MODAL (KİŞİSEL VERİ GİZLİ) -->
-    <div id="supportModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 relative">
-            <button onclick="document.getElementById('supportModal').classList.add('hidden')" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-lg font-bold">
-                ✕
+            <span class="text-slate-300">•</span>
+            <button onclick="document.getElementById('supportModal').classList.remove('hidden')" class="hover:text-slate-700 font-semibold text-slate-500 transition flex items-center gap-1">
+                <span>🛠️</span> Report an Issue / Support
             </button>
-            
-            <div class="flex items-center gap-2 mb-2">
-                <div class="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center text-sm font-bold">
-                    🛠️
-                </div>
-                <h3 class="font-bold text-slate-900 text-sm">Report an Issue / Technical Support</h3>
+        </div>
+    </div>
+</footer>
+
+<!-- DESTEK MODAL (KİŞİSEL VERİ GİZLİ) -->
+<div id="supportModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 relative">
+        <button onclick="document.getElementById('supportModal').classList.add('hidden')" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-lg font-bold">
+            ✕
+        </button>
+        
+        <div class="flex items-center gap-2 mb-2">
+            <div class="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center text-sm font-bold">
+                🛠️
             </div>
-            
-            <p class="text-xs text-slate-500 mb-4 leading-relaxed">
-                Experiencing technical difficulties, false alerts, or tracking issues? Contact our operations desk directly via Telegram.
-            </p>
+            <h3 class="font-bold text-slate-900 text-sm">Report an Issue / Technical Support</h3>
+        </div>
+        
+        <p class="text-xs text-slate-500 mb-4 leading-relaxed">
+            Experiencing technical difficulties, false alerts, or tracking issues? Contact our operations desk directly via Telegram.
+        </p>
 
-            <div class="space-y-3">
-                <div class="p-3 bg-indigo-50/60 rounded-xl border border-indigo-100 text-xs text-indigo-950 flex items-center justify-between">
-                    <div>
-                        <p class="font-semibold">Direct Telegram Support Desk</p>
-                        <p class="text-[11px] text-indigo-700">Send logs, screenshots, and bot queries directly.</p>
-                    </div>
-                    <a href="https://t.me/uk_company_radar_bot" target="_blank" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-1.5 px-3 rounded-lg shadow-sm">
-                        Open Bot
-                    </a>
+        <div class="space-y-3">
+            <div class="p-3 bg-indigo-50/60 rounded-xl border border-indigo-100 text-xs text-indigo-950 flex items-center justify-between">
+                <div>
+                    <p class="font-semibold">Direct Telegram Support Desk</p>
+                    <p class="text-[11px] text-indigo-700">Send logs, screenshots, and bot queries directly.</p>
                 </div>
+                <a href="https://t.me/uk_company_radar_bot" target="_blank" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-1.5 px-3 rounded-lg shadow-sm">
+                    Open Bot
+                </a>
+            </div>
 
-                <div class="pt-2">
-                    <button type="button" onclick="document.getElementById('supportModal').classList.add('hidden')" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs py-2 rounded-xl transition">
-                        Close
-                    </button>
-                </div>
+            <div class="pt-2">
+                <button type="button" onclick="document.getElementById('supportModal').classList.add('hidden')" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs py-2 rounded-xl transition">
+                    Close
+                </button>
             </div>
         </div>
     </div>
-
-</body>
-</html>
+</div>
