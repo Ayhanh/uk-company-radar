@@ -1,11 +1,14 @@
 import asyncio
-from datetime import date
+from datetime import date, datetime, timedelta
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 import hashlib
 import hmac
 import os
 from pathlib import Path
 import re
 import secrets
+import smtplib
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -27,6 +30,7 @@ COMPANIES_HOUSE_API_KEY = os.getenv("COMPANIES_HOUSE_API_KEY", "").strip()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 SECRET_KEY = os.getenv("SECRET_KEY", "").strip()
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+APP_BASE_URL = os.getenv("APP_BASE_URL", "https://uk-company-radar.onrender.com").rstrip("/")
 DEBUG_MODE = os.getenv("DEBUG", "false").strip().lower() in {
     "1",
     "true",
@@ -34,7 +38,14 @@ DEBUG_MODE = os.getenv("DEBUG", "false").strip().lower() in {
     "on",
 }
 
-# Lemon Squeezy Signing Secret (Render Environment Variables'a da ekleyebilirsiniz)
+# SMTP Ayarları (İsteğe bağlı, girilmezse bağlantı linki sunucu loglarına basılır)
+SMTP_SERVER = os.getenv("SMTP_SERVER", "").strip()
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "").strip()
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
+SMTP_FROM = os.getenv("SMTP_FROM", "support@ukcompanyradar.com").strip()
+
+# Lemon Squeezy Signing Secret
 LEMON_WEBHOOK_SECRET = os.getenv(
     "LEMON_WEBHOOK_SECRET", "uk_radar_secret_2026"
 ).strip()
@@ -114,6 +125,12 @@ def init_db():
                 user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS password_resets (
+                token TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                expires_at TIMESTAMP NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
         """)
     else:
         cursor.execute("""
@@ -160,6 +177,15 @@ def init_db():
                 FOREIGN KEY (user_id) REFERENCES users (id)
             )
         """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS password_resets (
+                token TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                expires_at TIMESTAMP NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id)
+            )
+        """)
         cursor.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_watchlist_user_company ON"
             " watchlist(user_id, company_number)"
@@ -189,6 +215,44 @@ def verify_password(stored_hash: str, password: str) -> bool:
         return key.hex() == key_hex
     except Exception:
         return False
+
+
+# ---------------------------------------------------------
+# E-POSTA İLE ŞİFRE SIFIRLAMA GÖNDERİCİSİ
+# ---------------------------------------------------------
+def send_reset_email(to_email: str, reset_link: str):
+    if not SMTP_SERVER or not SMTP_USER:
+        print(f"\n=======================================================")
+        print(f"[PASSWORD RESET LINK for {to_email}]:")
+        print(reset_link)
+        print(f"=======================================================\n")
+        return
+
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = "Reset Your UK Company Radar Password"
+        msg["From"] = SMTP_FROM
+        msg["To"] = to_email
+
+        html = f"""
+        <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; rounded: 12px;">
+            <h2 style="color: #0f172a; margin-bottom: 8px;">UK Company Radar</h2>
+            <p style="color: #475569; font-size: 14px;">We received a request to reset your password. Click the link below to set a new password:</p>
+            <div style="margin: 25px 0;">
+                <a href="{reset_link}" style="background-color: #0f172a; color: #ffffff; padding: 10px 20px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 14px; display: inline-block;">Reset Password</a>
+            </div>
+            <p style="color: #94a3b8; font-size: 12px;">This link will expire in 1 hour. If you did not request this, please ignore this email.</p>
+        </div>
+        """
+        msg.attach(MIMEText(html, "html"))
+
+        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=10)
+        server.starttls()
+        server.login(SMTP_USER, SMTP_PASSWORD)
+        server.sendmail(SMTP_FROM, [to_email], msg.as_string())
+        server.quit()
+    except Exception as e:
+        print(f"[SMTP Send Error]: {e}")
 
 
 # ---------------------------------------------------------
@@ -354,7 +418,7 @@ def get_latest_filing_update(company_number: str):
 
 
 # ---------------------------------------------------------
-# ARKA PLAN GÖREVİ (ÖNCE ÇALIŞTIR, SONRA UYU)
+# ARKA PLAN GÖREVİ
 # ---------------------------------------------------------
 async def automated_background_monitor():
     while True:
@@ -455,7 +519,6 @@ async def automated_background_monitor():
         except Exception as e:
             print(f"[Background Monitor Error]: {e}")
 
-        # İlk taramayı yaptıktan sonra 1 saat uyu
         await asyncio.sleep(3600)
 
 
@@ -474,7 +537,6 @@ async def lemon_webhook(
 ):
     raw_body = await request.body()
 
-    # 1. İmza Doğrulaması (Webhook Güvenliği)
     digest = hmac.new(
         LEMON_WEBHOOK_SECRET.encode("utf-8"), raw_body, hashlib.sha256
     ).hexdigest()
@@ -491,18 +553,12 @@ async def lemon_webhook(
     customer_email = (attributes.get("user_email") or "").strip().lower()
     status = attributes.get("status")
 
-    print(
-        f"[Lemon Webhook]: Event={event_name}, Email={customer_email},"
-        f" Status={status}"
-    )
-
     if not customer_email:
         return {"status": "no_email"}
 
     conn = get_db()
     cursor = conn.cursor()
 
-    # 2. Abonelik Başladı veya Güncellendi (PRO Aktivasyonu)
     if event_name in ["subscription_created", "subscription_updated"]:
         if status == "active":
             q_update = format_query(
@@ -511,7 +567,6 @@ async def lemon_webhook(
             cursor.execute(q_update, (customer_email,))
             conn.commit()
 
-            # Kullanıcının Telegram Chat ID'si varsa bildirim gönder
             q_user = format_query(
                 "SELECT telegram_chat_id FROM users WHERE lower(email) = ?"
             )
@@ -529,7 +584,6 @@ async def lemon_webhook(
                 )
                 await send_telegram(user_row["telegram_chat_id"], pro_msg)
 
-    # 3. Abonelik İptal Edildi (PRO Pasife Çekme)
     elif event_name in ["subscription_cancelled", "subscription_expired"]:
         q_cancel = format_query(
             "UPDATE users SET is_pro = 0 WHERE lower(email) = ?"
@@ -555,7 +609,7 @@ async def lemon_webhook(
 
 
 # ---------------------------------------------------------
-# ROTALAR
+# ANA SAYFA VE TAKİP ROTALARI
 # ---------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request, q: Optional[str] = None):
@@ -633,7 +687,7 @@ async def track_company(
 ):
     user = get_current_user(request)
     if not user:
-        return RedirectResponse(url="/auth", status_code=303)
+        return RedirectResponse(url="/login", status_code=303)
 
     company_number = normalize_company_number(company_number)
     if not company_number or not re.fullmatch(r"[A-Z0-9]{6,10}", company_number):
@@ -696,7 +750,7 @@ async def track_company(
 async def untrack_company(request: Request, company_id: int = Form(...)):
     user = get_current_user(request)
     if not user:
-        return RedirectResponse(url="/auth", status_code=303)
+        return RedirectResponse(url="/login", status_code=303)
 
     conn = get_db()
     cursor = conn.cursor()
@@ -708,7 +762,7 @@ async def untrack_company(request: Request, company_id: int = Form(...)):
 
 
 # ---------------------------------------------------------
-# AUTH ROTALARI (GİRİŞ VE KAYIT AYRIŞTIRILDI)
+# AUTH ROTALARI (GİRİŞ, KAYIT & ŞİFRE SIFIRLAMA)
 # ---------------------------------------------------------
 @app.get("/auth", response_class=HTMLResponse)
 async def auth_page(request: Request, mode: Optional[str] = "login"):
@@ -719,7 +773,7 @@ async def auth_page(request: Request, mode: Optional[str] = "login"):
     return templates.TemplateResponse(
         request=request, 
         name="auth.html", 
-        context={"error": None, "initial_tab": initial_tab}
+        context={"error": None, "message": None, "initial_tab": initial_tab}
     )
 
 
@@ -731,7 +785,7 @@ async def login_page(request: Request):
     return templates.TemplateResponse(
         request=request, 
         name="auth.html", 
-        context={"error": None, "initial_tab": "login"}
+        context={"error": None, "message": None, "initial_tab": "login"}
     )
 
 
@@ -743,7 +797,7 @@ async def register_page(request: Request):
     return templates.TemplateResponse(
         request=request, 
         name="auth.html", 
-        context={"error": None, "initial_tab": "register"}
+        context={"error": None, "message": None, "initial_tab": "register"}
     )
 
 
@@ -761,7 +815,7 @@ async def register(
         return templates.TemplateResponse(
             request=request,
             name="auth.html",
-            context={"error": "Telegram Chat ID must be a valid numeric ID.", "initial_tab": "register"},
+            context={"error": "Telegram Chat ID must be a valid numeric ID.", "message": None, "initial_tab": "register"},
         )
 
     conn = get_db()
@@ -774,7 +828,7 @@ async def register(
         return templates.TemplateResponse(
             request=request,
             name="auth.html",
-            context={"error": "This email is already registered.", "initial_tab": "register"},
+            context={"error": "This email is already registered.", "message": None, "initial_tab": "register"},
         )
 
     if chat_id_clean and (email_clean not in ADMIN_EMAILS):
@@ -791,6 +845,7 @@ async def register(
                         "This Telegram Chat ID is already registered to another"
                         " account."
                     ),
+                    "message": None,
                     "initial_tab": "register",
                 },
             )
@@ -861,7 +916,7 @@ async def login(
         return templates.TemplateResponse(
             request=request,
             name="auth.html",
-            context={"error": "Invalid email or password.", "initial_tab": "login"},
+            context={"error": "Invalid email or password.", "message": None, "initial_tab": "login"},
         )
 
     session_id = secrets.token_hex(24)
@@ -869,6 +924,145 @@ async def login(
         "INSERT INTO sessions (session_id, user_id) VALUES (?, ?)"
     )
     cursor.execute(q_session, (session_id, user["id"]))
+    conn.commit()
+    conn.close()
+
+    response = RedirectResponse(url="/", status_code=303)
+    response.set_cookie(
+        "session_id",
+        session_id,
+        max_age=30 * 86400,
+        httponly=True,
+        secure=not DEBUG_MODE,
+        samesite="lax",
+    )
+    return response
+
+
+@app.post("/auth/forgot-password")
+async def forgot_password(request: Request, email: str = Form(...)):
+    email_clean = email.strip().lower()
+    conn = get_db()
+    cursor = conn.cursor()
+    query = format_query("SELECT id FROM users WHERE lower(email) = ?")
+    cursor.execute(query, (email_clean,))
+    user = cursor.fetchone()
+
+    if user:
+        token = secrets.token_urlsafe(32)
+        expires_at = datetime.utcnow() + timedelta(hours=1)
+        
+        q_reset = format_query("""
+            INSERT INTO password_resets (token, user_id, expires_at)
+            VALUES (?, ?, ?)
+        """)
+        cursor.execute(q_reset, (token, user["id"], expires_at))
+        conn.commit()
+
+        reset_link = f"{APP_BASE_URL}/auth/reset-password?token={token}"
+        send_reset_email(email_clean, reset_link)
+
+    conn.close()
+    return templates.TemplateResponse(
+        request=request,
+        name="auth.html",
+        context={
+            "error": None,
+            "message": "If an account exists with this email, a password reset link has been dispatched.",
+            "initial_tab": "login",
+        },
+    )
+
+
+@app.get("/auth/reset-password", response_class=HTMLResponse)
+async def reset_password_page(request: Request, token: Optional[str] = None):
+    if not token:
+        return RedirectResponse(url="/login", status_code=303)
+
+    conn = get_db()
+    cursor = conn.cursor()
+    query = format_query("SELECT user_id, expires_at FROM password_resets WHERE token = ?")
+    cursor.execute(query, (token,))
+    record = cursor.fetchone()
+    conn.close()
+
+    if not record:
+        return templates.TemplateResponse(
+            request=request,
+            name="auth.html",
+            context={"error": "Invalid or expired reset token.", "message": None, "initial_tab": "login"},
+        )
+
+    # Süre kontrolü
+    expires_at = record["expires_at"]
+    if isinstance(expires_at, str):
+        expires_at = datetime.fromisoformat(expires_at)
+    
+    if datetime.utcnow() > expires_at:
+        return templates.TemplateResponse(
+            request=request,
+            name="auth.html",
+            context={"error": "This reset link has expired. Please request a new one.", "message": None, "initial_tab": "login"},
+        )
+
+    return templates.TemplateResponse(
+        request=request,
+        name="reset_password.html",
+        context={"token": token, "error": None},
+    )
+
+
+@app.post("/auth/reset-password")
+async def reset_password_submit(
+    request: Request,
+    token: str = Form(...),
+    password: str = Form(...),
+    confirm_password: str = Form(...),
+):
+    if password != confirm_password:
+        return templates.TemplateResponse(
+            request=request,
+            name="reset_password.html",
+            context={"token": token, "error": "Passwords do not match."},
+        )
+
+    if len(password) < 6:
+        return templates.TemplateResponse(
+            request=request,
+            name="reset_password.html",
+            context={"token": token, "error": "Password must be at least 6 characters."},
+        )
+
+    conn = get_db()
+    cursor = conn.cursor()
+    query = format_query("SELECT user_id, expires_at FROM password_resets WHERE token = ?")
+    cursor.execute(query, (token,))
+    record = cursor.fetchone()
+
+    if not record:
+        conn.close()
+        return templates.TemplateResponse(
+            request=request,
+            name="auth.html",
+            context={"error": "Invalid or expired reset token.", "message": None, "initial_tab": "login"},
+        )
+
+    user_id = record["user_id"]
+    new_pwd_hash = hash_password(password)
+
+    # Şifreyi güncelle ve kullanılan token'ı sil
+    q_upd = format_query("UPDATE users SET password_hash = ? WHERE id = ?")
+    cursor.execute(q_upd, (new_pwd_hash, user_id))
+
+    q_del = format_query("DELETE FROM password_resets WHERE user_id = ?")
+    cursor.execute(q_del, (user_id,))
+
+    # Doğrudan oturum aç
+    session_id = secrets.token_hex(24)
+    q_session = format_query(
+        "INSERT INTO sessions (session_id, user_id) VALUES (?, ?)"
+    )
+    cursor.execute(q_session, (session_id, user_id))
     conn.commit()
     conn.close()
 
