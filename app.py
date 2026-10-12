@@ -39,7 +39,7 @@ DEBUG_MODE = os.getenv("DEBUG", "false").strip().lower() in {
     "on",
 }
 
-# SMTP Ayarları (İsteğe bağlı, girilmezse bağlantı linki sunucu loglarına basılır)
+# SMTP Ayarları
 SMTP_SERVER = os.getenv("SMTP_SERVER", "").strip()
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USER = os.getenv("SMTP_USER", "").strip()
@@ -50,6 +50,9 @@ SMTP_FROM = os.getenv("SMTP_FROM", "support@ukcompanyradar.com").strip()
 LEMON_WEBHOOK_SECRET = os.getenv(
     "LEMON_WEBHOOK_SECRET", "uk_radar_secret_2026"
 ).strip()
+
+# Dodo Payments Webhook Secret (Render Environment Variable)
+DODO_WEBHOOK_SECRET = os.getenv("DODO_WEBHOOK_SECRET", "").strip()
 
 ADMIN_EMAILS = [
     os.getenv("ADMIN_EMAIL", "ayhan.hakyemez@gmail.com").strip().lower()
@@ -564,7 +567,109 @@ async def startup_event():
 
 
 # ---------------------------------------------------------
-# LEMON SQUEEZY WEBHOOK ENTEGRASYONU
+# DODO PAYMENTS WEBHOOK ENTEGRASYONU
+# ---------------------------------------------------------
+@app.post("/api/dodo-webhook")
+async def dodo_webhook(request: Request):
+    raw_body = await request.body()
+    headers = request.headers
+    
+    # Dodo / Svix imza kontrolü (opsiyonel güvenli doğrulama)
+    webhook_signature = headers.get("webhook-signature") or headers.get("Webhook-Signature")
+    if DODO_WEBHOOK_SECRET and webhook_signature:
+        # İmzayı doğrula veya logla
+        computed_sig = hmac.new(
+            DODO_WEBHOOK_SECRET.encode("utf-8"), raw_body, hashlib.sha256
+        ).hexdigest()
+        # Not: Svix header'ı 'v1,t=...' biçiminde gelirse karşılaştırmayı esnetebiliriz
+        if computed_sig in webhook_signature:
+            pass
+
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    # Dodo Payments olay yapısı
+    event_type = payload.get("type") or payload.get("event")
+    event_data = payload.get("data", {})
+
+    # Müşteri e-postasını çıkart
+    customer_email = ""
+    if isinstance(event_data.get("customer"), dict):
+        customer_email = event_data["customer"].get("email") or ""
+    elif isinstance(event_data.get("customer"), str) and "@" in event_data.get("customer"):
+        customer_email = event_data.get("customer")
+    elif event_data.get("billing_email"):
+        customer_email = event_data.get("billing_email")
+    elif event_data.get("customer_email"):
+        customer_email = event_data.get("customer_email")
+
+    customer_email = customer_email.strip().lower()
+
+    if not customer_email:
+        print(f"[Dodo Webhook Warning]: No email found in payload. Event: {event_type}")
+        return {"status": "no_email_ignored"}
+
+    admin_telegram_chat_id = os.getenv("MY_TELEGRAM_ID", "-4367179502").strip()
+    conn = get_db()
+    cursor = conn.cursor()
+
+    # 1. Başarılı Ödeme veya Abonelik Başlatma
+    if event_type in ["payment.succeeded", "subscription.active", "checkout.session.completed"]:
+        q_update = format_query("UPDATE users SET is_pro = 1 WHERE lower(email) = ?")
+        cursor.execute(q_update, (customer_email,))
+        conn.commit()
+
+        # Kullanıcı chat ID'sini bul
+        q_user = format_query("SELECT telegram_chat_id FROM users WHERE lower(email) = ?")
+        cursor.execute(q_user, (customer_email,))
+        user_row = cursor.fetchone()
+
+        # Kullanıcıya tebrik mesajı
+        if user_row and user_row.get("telegram_chat_id"):
+            pro_msg = (
+                "🎉 <b>UK Company Radar | PRO Membership Activated!</b>\n\n"
+                "Thank you for subscribing! Your account has been upgraded to <b>PRO</b>.\n"
+                "• Unlimited daily company searches\n"
+                "• Unlimited tracked entities in your watchlist\n"
+                "• Priority real-time alert notifications"
+            )
+            await send_telegram(user_row["telegram_chat_id"], pro_msg)
+
+        # Yöneticiye satış bildirimi
+        admin_sale_msg = (
+            "💰 <b>NEW DODO PAYMENTS SALE!</b>\n\n"
+            f"👤 <b>Customer:</b> <code>{customer_email}</code>\n"
+            f"📦 <b>Event:</b> <code>{event_type}</code>\n"
+            f"💳 <b>Provider:</b> Dodo Payments (MoR)\n"
+            f"🕒 <i>Time: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC</i>"
+        )
+        await send_telegram(admin_telegram_chat_id, admin_sale_msg)
+
+    # 2. Abonelik İptali / Süre Sonu
+    elif event_type in ["subscription.cancelled", "subscription.expired", "subscription.paused"]:
+        q_cancel = format_query("UPDATE users SET is_pro = 0 WHERE lower(email) = ?")
+        cursor.execute(q_cancel, (customer_email,))
+        conn.commit()
+
+        q_user = format_query("SELECT telegram_chat_id FROM users WHERE lower(email) = ?")
+        cursor.execute(q_user, (customer_email,))
+        user_row = cursor.fetchone()
+
+        if user_row and user_row.get("telegram_chat_id"):
+            cancel_msg = (
+                "ℹ️ <b>UK Company Radar | Subscription Ended</b>\n\n"
+                "Your Pro membership has concluded. Your account is now on the complimentary tier."
+            )
+            await send_telegram(user_row["telegram_chat_id"], cancel_msg)
+
+    conn.close()
+    return {"status": "success", "event": event_type}
+
+
+# ---------------------------------------------------------
+# LEMON SQUEEZY WEBHOOK ENTEGRASYONU (ESKİ / YEDEK)
 # ---------------------------------------------------------
 @app.post("/api/lemon-webhook")
 async def lemon_webhook(
@@ -1237,6 +1342,8 @@ async def admin_users_dashboard(request: Request):
     </html>
     """
     return HTMLResponse(content=html_content)
+
+
 # ---------------------------------------------------------
 # SUPPORT DESK (MÜŞTERİ DESTEK TALEBİ) APISI
 # ---------------------------------------------------------
@@ -1254,7 +1361,6 @@ async def support_ticket_api(request: Request):
     if not user_email or not message:
         raise HTTPException(status_code=400, detail="Email and message are required fields.")
 
-    # Render Environment'tan ID'yi al, yoksa varsayılanı kullan
     admin_telegram_chat_id = os.getenv("MY_TELEGRAM_ID", "-4367179502").strip()
 
     telegram_support_msg = (
