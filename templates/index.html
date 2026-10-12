@@ -397,7 +397,7 @@
                     <span>🤖</span> Telegram Bot
                 </a>
                 <span class="text-slate-300">•</span>
-                <button onclick="document.getElementById('supportModal').classList.remove('hidden')" class="hover:text-slate-700 font-semibold text-slate-500 transition flex items-center gap-1">
+                <button type="button" onclick="openSupportModal()" class="hover:text-slate-700 font-semibold text-slate-500 transition flex items-center gap-1">
                     <span>🛠️</span> Support Desk
                 </button>
             </div>
@@ -491,46 +491,76 @@
         </div>
     </div>
 
-    <!-- DESTEK MODAL -->
+    <!-- MODERN DESTEK MASASI MODAL'I (GMAIL API ENTEGRELİ) -->
     <div id="supportModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 relative">
-            <button onclick="document.getElementById('supportModal').classList.add('hidden')" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-lg font-bold">
+        <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 relative">
+            <button type="button" onclick="closeSupportModal()" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-lg font-bold">
                 ✕
             </button>
             
             <div class="flex items-center gap-2 mb-2">
-                <div class="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center text-sm font-bold">
+                <div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center text-sm font-bold">
                     🛠️
                 </div>
-                <h3 class="font-bold text-slate-900 text-sm">Customer Support Desk</h3>
+                <h3 class="font-bold text-slate-900 text-base">Contact Support Desk</h3>
             </div>
             
             <p class="text-xs text-slate-500 mb-4 leading-relaxed">
-                Have questions or need assistance with your watchlist? Connect with our support desk directly via Telegram.
+                Need help with your portfolio alerts, registry data, or subscription? Drop us a message and our team will get back to you shortly.
             </p>
 
-            <div class="space-y-3">
-                <div class="p-3 bg-indigo-50/60 rounded-xl border border-indigo-100 text-xs text-indigo-950 flex items-center justify-between">
-                    <div>
-                        <p class="font-semibold">Direct Telegram Support</p>
-                        <p class="text-[11px] text-indigo-700">Quick queries & bot assistance.</p>
-                    </div>
-                    <a href="https://t.me/uk_company_radar_bot" target="_blank" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-1.5 px-3 rounded-lg shadow-sm">
-                        Open Bot
-                    </a>
+            <form id="supportForm" onsubmit="submitSupportTicket(event)" class="space-y-3.5">
+                <div id="supportAlert" class="hidden p-3 rounded-xl text-xs font-medium"></div>
+
+                <div>
+                    <label for="supportEmail" class="block text-xs font-semibold text-slate-700 mb-1">Your Email Address *</label>
+                    <input 
+                        type="email" 
+                        id="supportEmail" 
+                        required 
+                        value="{{ user.email if user else '' }}"
+                        placeholder="you@company.com" 
+                        class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:bg-white transition"
+                    >
                 </div>
 
-                <div class="pt-2">
-                    <button type="button" onclick="document.getElementById('supportModal').classList.add('hidden')" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs py-2 rounded-xl transition">
-                        Close
+                <div>
+                    <label for="supportSubject" class="block text-xs font-semibold text-slate-700 mb-1">Subject *</label>
+                    <input 
+                        type="text" 
+                        id="supportSubject" 
+                        required 
+                        placeholder="e.g. Alert issue, Portfolio limit, Billing inquiry" 
+                        class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:bg-white transition"
+                    >
+                </div>
+
+                <div>
+                    <label for="supportMessage" class="block text-xs font-semibold text-slate-700 mb-1">Message Details *</label>
+                    <textarea 
+                        id="supportMessage" 
+                        rows="4" 
+                        required 
+                        placeholder="Describe your issue or feedback in detail..." 
+                        class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:bg-white transition resize-none"
+                    ></textarea>
+                </div>
+
+                <div class="flex items-center justify-end gap-2 pt-2">
+                    <button type="button" onclick="closeSupportModal()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition">
+                        Cancel
+                    </button>
+                    <button type="submit" id="supportSubmitBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs py-2 px-5 rounded-xl shadow-sm transition">
+                        Send Ticket
                     </button>
                 </div>
-            </div>
+            </form>
         </div>
     </div>
 
-    <!-- MODAL ETKİLEŞİM JAVASCRIPT'İ -->
+    <!-- JAVASCRIPT KODLARI -->
     <script>
+    /* ŞİRKET DETAY MODAL'I */
     async function openCompanyModal(companyNumber) {
         const modal = document.getElementById('companyModal');
         const loading = document.getElementById('modalLoading');
@@ -649,11 +679,74 @@
         document.getElementById('companyModal').classList.add('hidden');
     }
 
+    /* DESTEK MASASI (SUPPORT MODAL) */
+    function openSupportModal() {
+        const modal = document.getElementById('supportModal');
+        modal.classList.remove('hidden');
+        const alertBox = document.getElementById('supportAlert');
+        alertBox.classList.add('hidden');
+    }
+
+    function closeSupportModal() {
+        document.getElementById('supportModal').classList.add('hidden');
+    }
+
+    async function submitSupportTicket(event) {
+        event.preventDefault();
+        
+        const submitBtn = document.getElementById('supportSubmitBtn');
+        const alertBox = document.getElementById('supportAlert');
+        const email = document.getElementById('supportEmail').value.trim();
+        const subject = document.getElementById('supportSubject').value.trim();
+        const message = document.getElementById('supportMessage').value.trim();
+
+        submitBtn.disabled = true;
+        submitBtn.innerText = 'Sending...';
+
+        try {
+            const response = await fetch('/api/support', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, subject, message })
+            });
+
+            const data = await response.json();
+
+            if (response.ok && data.success) {
+                alertBox.className = "p-3 rounded-xl text-xs font-medium bg-emerald-50 text-emerald-800 border border-emerald-200 block";
+                alertBox.innerText = 'Your message has been sent successfully. Our team will get back to you shortly.';
+                document.getElementById('supportMessage').value = '';
+                document.getElementById('supportSubject').value = '';
+                
+                setTimeout(() => {
+                    closeSupportModal();
+                }, 2200);
+            } else {
+                throw new Error(data.error || 'Failed to send ticket. Please try again.');
+            }
+        } catch (err) {
+            alertBox.className = "p-3 rounded-xl text-xs font-medium bg-rose-50 text-rose-800 border border-rose-200 block";
+            alertBox.innerText = err.message || 'An error occurred while sending your request.';
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.innerText = 'Send Ticket';
+        }
+    }
+
+    // Modal dışına veya ESC tuşuna basıldığında kapatma kontrolleri
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') closeCompanyModal();
+        if (e.key === 'Escape') {
+            closeCompanyModal();
+            closeSupportModal();
+        }
     });
+
     document.getElementById('companyModal').addEventListener('click', (e) => {
         if (e.target.id === 'companyModal') closeCompanyModal();
+    });
+
+    document.getElementById('supportModal').addEventListener('click', (e) => {
+        if (e.target.id === 'supportModal') closeSupportModal();
     });
     </script>
 
