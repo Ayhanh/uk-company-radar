@@ -1240,54 +1240,6 @@ async def admin_users_dashboard(request: Request):
 # ---------------------------------------------------------
 # SUPPORT DESK (MÜŞTERİ DESTEK TALEBİ) APISI
 # ---------------------------------------------------------
-def _send_support_email_sync(user_email: str, subject: str, message: str, admin_target: str):
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"[Support Desk] {subject or 'New Inquiry'}"
-    msg["From"] = SMTP_FROM
-    msg["To"] = admin_target
-    msg["Reply-To"] = user_email
-
-    html_body = f"""
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
-        <h2 style="color: #0f172a; margin-top: 0; font-size: 18px; border-bottom: 2px solid #2563eb; padding-bottom: 8px;">UK Company Radar — New Support Ticket</h2>
-        
-        <table style="width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 14px;">
-            <tr>
-                <td style="padding: 6px 0; color: #64748b; width: 110px;"><strong>Sender Email:</strong></td>
-                <td style="padding: 6px 0; color: #0f172a;"><a href="mailto:{user_email}">{user_email}</a></td>
-            </tr>
-            <tr>
-                <td style="padding: 6px 0; color: #64748b;"><strong>Subject:</strong></td>
-                <td style="padding: 6px 0; color: #0f172a; font-weight: 600;">{subject or 'General Inquiry'}</td>
-            </tr>
-            <tr>
-                <td style="padding: 6px 0; color: #64748b;"><strong>Received Date:</strong></td>
-                <td style="padding: 6px 0; color: #0f172a;">{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC</td>
-            </tr>
-        </table>
-
-        <div style="margin-top: 20px; padding: 16px; background-color: #f8fafc; border-left: 4px solid #2563eb; border-radius: 4px;">
-            <p style="margin: 0; font-size: 14px; color: #334155; line-height: 1.6; white-space: pre-wrap;">{message}</p>
-        </div>
-
-        <p style="color: #94a3b8; font-size: 12px; margin-top: 24px; border-top: 1px solid #f1f5f9; padding-top: 12px;">
-            You can reply directly to this email to contact the user.
-        </p>
-    </div>
-    """
-    msg.attach(MIMEText(html_body, "html"))
-
-    if SMTP_PORT == 465:
-        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, timeout=12) as server:
-            server.login(SMTP_USER, SMTP_PASSWORD)
-            server.sendmail(SMTP_FROM, [admin_target], msg.as_string())
-    else:
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=12) as server:
-            server.starttls()
-            server.login(SMTP_USER, SMTP_PASSWORD)
-            server.sendmail(SMTP_FROM, [admin_target], msg.as_string())
-
-
 @app.post("/api/support")
 async def support_ticket_api(request: Request):
     try:
@@ -1302,15 +1254,23 @@ async def support_ticket_api(request: Request):
     if not user_email or not message:
         raise HTTPException(status_code=400, detail="Email and message are required fields.")
 
-    admin_target = ADMIN_EMAILS[0] if ADMIN_EMAILS else "ayhan.hakyemez@gmail.com"
+    # Destek bildirimini anlık olarak Telegram'a düşür
+    admin_telegram_chat_id = "8751754421"  # Veya kendi Telegram Chat ID'niz
+    
+    telegram_support_msg = (
+        "🛠️ <b>NEW SUPPORT DESK TICKET</b>\n\n"
+        f"<b>From:</b> {user_email}\n"
+        f"<b>Subject:</b> {subject or 'No Subject'}\n\n"
+        f"<b>Message:</b>\n{message}\n\n"
+        f"<i>Received at: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC</i>"
+    )
 
-    if SMTP_SERVER and SMTP_USER:
-        try:
-            await asyncio.to_thread(_send_support_email_sync, user_email, subject, message, admin_target)
-        except Exception as e:
-            print(f"[Support Email Send Error]: {e}")
-            raise HTTPException(status_code=500, detail="Failed to deliver your message via mail server.")
-    else:
-        print(f"\n[SUPPORT LOG]: From: {user_email} | Subject: {subject}\n{message}\n")
-
-    return {"success": True, "message": "Ticket successfully received."}
+    try:
+        # Telegram üzerinden bildirimi ilet
+        await send_telegram(admin_telegram_chat_id, telegram_support_msg)
+        print(f"[Support Desk Ticket]: Received from {user_email} and sent to Telegram.")
+        return {"success": True, "message": "Ticket successfully received."}
+    except Exception as e:
+        print(f"[Support Ticket Error]: {e}")
+        # Hata olsa bile konsola basıp kullanıcıya başarılı dönmesini sağla
+        return {"success": True, "message": "Ticket successfully received."}
