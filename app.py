@@ -1254,9 +1254,9 @@ async def support_ticket_api(request: Request):
     if not user_email or not message:
         raise HTTPException(status_code=400, detail="Email and message are required fields.")
 
-    # Destek bildirimini anlık olarak Telegram'a düşür
-    admin_telegram_chat_id = "8751754421"  # Veya kendi Telegram Chat ID'niz
-    
+    # Render Environment'tan ID'yi al, yoksa varsayılanı kullan
+    admin_telegram_chat_id = os.getenv("MY_TELEGRAM_ID", "-4367179502").strip()
+
     telegram_support_msg = (
         "🛠️ <b>NEW SUPPORT DESK TICKET</b>\n\n"
         f"<b>From:</b> {user_email}\n"
@@ -1266,11 +1266,9 @@ async def support_ticket_api(request: Request):
     )
 
     try:
-        # Telegram üzerinden bildirimi ilet
         await send_telegram(admin_telegram_chat_id, telegram_support_msg)
-        print(f"[Support Desk Ticket]: Received from {user_email} and sent to Telegram.")
+        print(f"[Support Desk Ticket]: Delivered to Telegram ({admin_telegram_chat_id}).")
         return {"success": True, "message": "Ticket successfully received."}
     except Exception as e:
         print(f"[Support Ticket Error]: {e}")
-        # Hata olsa bile konsola basıp kullanıcıya başarılı dönmesini sağla
         return {"success": True, "message": "Ticket successfully received."}
