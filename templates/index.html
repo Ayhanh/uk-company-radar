@@ -692,7 +692,10 @@
     }
 
     async function submitSupportTicket(event) {
-        event.preventDefault();
+        if (event) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
         
         const submitBtn = document.getElementById('supportSubmitBtn');
         const alertBox = document.getElementById('supportAlert');
@@ -700,17 +703,32 @@
         const subject = document.getElementById('supportSubject').value.trim();
         const message = document.getElementById('supportMessage').value.trim();
 
+        if (!email || !message) {
+            alertBox.className = "p-3 rounded-xl text-xs font-medium bg-amber-50 text-amber-800 border border-amber-200 block";
+            alertBox.innerText = 'Please provide both email and message details.';
+            return;
+        }
+
         submitBtn.disabled = true;
         submitBtn.innerText = 'Sending...';
+        alertBox.classList.add('hidden');
 
         try {
             const response = await fetch('/api/support', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
                 body: JSON.stringify({ email, subject, message })
             });
 
-            const data = await response.json();
+            let data = {};
+            try {
+                data = await response.json();
+            } catch(e) {
+                data = {};
+            }
 
             if (response.ok && data.success) {
                 alertBox.className = "p-3 rounded-xl text-xs font-medium bg-emerald-50 text-emerald-800 border border-emerald-200 block";
@@ -722,11 +740,13 @@
                     closeSupportModal();
                 }, 2200);
             } else {
-                throw new Error(data.error || 'Failed to send ticket. Please try again.');
+                alertBox.className = "p-3 rounded-xl text-xs font-medium bg-rose-50 text-rose-800 border border-rose-200 block";
+                alertBox.innerText = data.detail || data.error || ('Server error: HTTP ' + response.status);
             }
         } catch (err) {
+            console.error("Support ticket send error:", err);
             alertBox.className = "p-3 rounded-xl text-xs font-medium bg-rose-50 text-rose-800 border border-rose-200 block";
-            alertBox.innerText = err.message || 'An error occurred while sending your request.';
+            alertBox.innerText = 'Browser connection error: ' + (err.message || 'Request failed');
         } finally {
             submitBtn.disabled = false;
             submitBtn.innerText = 'Send Ticket';
