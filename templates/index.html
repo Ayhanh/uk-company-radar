@@ -90,7 +90,7 @@
                     Your daily complimentary searches reset at midnight UTC. You can upgrade to Pro for unlimited on-demand entity lookups.
                 </p>
             </div>
-            <a href="https://test.checkout.dodopayments.com/buy/pdt_0NpZk9jFviKZX7CvOCXqI?quantity=1&redirect_url=https://uk-company-radar.onrender.com%2F%3Fpayment%3Dsuccess" target="_blank" class="inline-flex justify-center items-center whitespace-nowrap bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-2.5 px-5 rounded-xl shadow-sm transition">
+            <a href="https://checkout.dodopayments.com/buy/pdt_0NpeP9HBH35DX4vKzdC6Y?quantity=1&redirect_url=https://uk-company-radar.onrender.com%2F%3Fpayment%3Dsuccess{% if user %}&customer_email={{ user.email }}{% endif %}" target="_blank" class="inline-flex justify-center items-center whitespace-nowrap bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-2.5 px-5 rounded-xl shadow-sm transition">
                 Unlock Unlimited Searches →
             </a>
         </div>
@@ -104,7 +104,7 @@
                     Free tier keeps a watchful eye on up to 3 UK entities. Upgrade to Pro for unlimited portfolio monitoring and 24/7 background sync.
                 </p>
             </div>
-            <a href="https://test.checkout.dodopayments.com/buy/pdt_0NpZk9jFviKZX7CvOCXqI?quantity=1&redirect_url=https://uk-company-radar.onrender.com%2F%3Fpayment%3Dsuccess" target="_blank" class="inline-flex justify-center items-center whitespace-nowrap bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-2.5 px-5 rounded-xl shadow-sm transition">
+            <a href="https://checkout.dodopayments.com/buy/pdt_0NpeP9HBH35DX4vKzdC6Y?quantity=1&redirect_url=https://uk-company-radar.onrender.com%2F%3Fpayment%3Dsuccess{% if user %}&customer_email={{ user.email }}{% endif %}" target="_blank" class="inline-flex justify-center items-center whitespace-nowrap bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-2.5 px-5 rounded-xl shadow-sm transition">
                 Upgrade to Pro (Unlimited) →
             </a>
         </div>
@@ -352,8 +352,8 @@
                         </ul>
                     </div>
 
-        <!-- DODO PAYMENTS CHECKOUT ALANI -->
-                    <div class="space-y-2 pt-2">
+                    <!-- DODO PAYMENTS CHECKOUT ALANI -->
+                    <div class="space-y-2.5 pt-2">
                         <!-- E-posta Eşleştirme Bilgi Notu -->
                         <div class="p-2.5 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-start gap-2">
                             <svg class="w-4 h-4 text-blue-600 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -362,17 +362,18 @@
                             <span><strong>Important:</strong> Please ensure your checkout email matches your registered account email for instant activation.</span>
                         </div>
 
-                        <!-- Butonlar -->
-                        <a href="https://checkout.dodopayments.com/buy/pdt_0NpeP9HBH35DX4vKzdC6Y?quantity=1&redirect_url=https://uk-company-radar.onrender.com%2F%3Fpayment%3Dsuccess&customer_email={{ current_user.email }}"
-                        class="block w-full py-3 px-4 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl text-center shadow-md transition-all">
+                        <!-- Canlı GBP Checkout Butonları -->
+                        <a href="https://checkout.dodopayments.com/buy/pdt_0NpeP9HBH35DX4vKzdC6Y?quantity=1&redirect_url=https://uk-company-radar.onrender.com%2F%3Fpayment%3Dsuccess{% if user %}&customer_email={{ user.email }}{% endif %}" 
+                           target="_blank" 
+                           class="block w-full py-3 px-4 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl text-center shadow-md transition-all text-xs">
                             Upgrade to Monthly Pro (£9.90/mo) →
                         </a>
-                        <a href="https://checkout.dodopayments.com/buy/pdt_0NpePTmT2ndnjwe2mU0uY?quantity=1&redirect_url=https://uk-company-radar.onrender.com%2F%3Fpayment%3Dsuccess&customer_email={{ current_user.email }}"
-                        class="block w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-xl text-center text-sm transition-all">
+                        <a href="https://checkout.dodopayments.com/buy/pdt_0NpePTmT2ndnjwe2mU0uY?quantity=1&redirect_url=https://uk-company-radar.onrender.com%2F%3Fpayment%3Dsuccess{% if user %}&customer_email={{ user.email }}{% endif %}" 
+                           target="_blank" 
+                           class="block w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-xl text-center text-xs transition-all border border-slate-200">
                             Or Save with Annual (£99/yr - 2 Mo Free)
                         </a>
                     </div>
-                    
                 </div>
             </div>
         </section>
