@@ -6,6 +6,18 @@
     <title>UK Company Radar - Trade with Confidence & Protect Your Cash Flow</title>
     <!-- FAVICON -->
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+
+    <!-- PWA & MOBILE CONFIGURATION -->
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#0f172a">
+    <meta name="mobile-web-app-capable" content="yes">
+
+    <!-- APPLE / IOS META TAGS -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="CompanyRadar">
+    <link rel="apple-touch-icon" href="/static/favicon.svg">
+
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
@@ -404,6 +416,33 @@
             </div>
         </section>
 
+        <!-- MOBİL ERİŞİM / PWA KURULUM BÖLÜMÜ (YENİ EKLENDİ) -->
+        <section id="pwa-install-card" class="bg-slate-900 text-white rounded-2xl p-6 sm:p-8 shadow-sm border border-slate-800 text-center space-y-4">
+            <div class="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-blue-500/20 text-blue-400 text-2xl border border-blue-400/30">
+                📲
+            </div>
+            <div class="max-w-xl mx-auto space-y-2">
+                <h3 class="text-lg sm:text-xl font-bold tracking-tight text-white">
+                    Track Companies On The Go
+                </h3>
+                <p class="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                    Add UK Company Radar to your phone's home screen for quick 1-tap access. Runs full-screen directly in your browser with zero App Store downloads or updates.
+                </p>
+            </div>
+
+            <!-- Kurulum Butonu -->
+            <div>
+                <button id="pwa-install-btn" type="button" class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs sm:text-sm py-2.5 px-6 rounded-xl shadow-md transition-all">
+                    <span>⚡</span> <span>Add to Home Screen</span>
+                </button>
+            </div>
+
+            <!-- iOS Safari İçin Yönlendirme İpucu -->
+            <div id="ios-instruction" class="hidden mt-3 max-w-md mx-auto text-xs text-slate-300 bg-slate-800/80 border border-slate-700 rounded-xl p-3">
+                Tap the <strong class="text-white">Share</strong> button <span class="text-sm">⎋</span> in Safari, then scroll down and tap <strong class="text-white">'Add to Home Screen'</strong> ➕.
+            </div>
+        </section>
+
     </main>
 
     <!-- FOOTER -->
@@ -580,6 +619,61 @@
 
     <!-- JAVASCRIPT KODLARI -->
     <script>
+    /* PWA & SERVICE WORKER ENTEGRASYONU */
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/sw.js').catch((err) => {
+                console.log('SW registration note:', err);
+            });
+        });
+    }
+
+    let deferredPrompt;
+    const installBtn = document.getElementById('pwa-install-btn');
+    const iosNotice = document.getElementById('ios-instruction');
+    const pwaCard = document.getElementById('pwa-install-card');
+
+    const isIos = () => /iphone|ipad|ipod/.test(window.navigator.userAgent.toLowerCase());
+    const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+
+    // Kullanıcı zaten standalone uygulama modundaysa indirme kartını gizle
+    if (isStandalone() && pwaCard) {
+        pwaCard.classList.add('hidden');
+    }
+
+    // Android/Chrome yükleme tetikleyicisi
+    window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPrompt = e;
+        if (installBtn) {
+            installBtn.classList.remove('hidden');
+        }
+    });
+
+    if (installBtn) {
+        if (isIos() && !isStandalone()) {
+            installBtn.innerHTML = `<span>📱</span> <span>Add to iPhone Home Screen</span>`;
+        }
+
+        installBtn.addEventListener('click', async () => {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                const { outcome } = await deferredPrompt.userChoice;
+                if (outcome === 'accepted') {
+                    installBtn.innerHTML = `<span>✓</span> <span>Added to Home Screen</span>`;
+                    installBtn.className = "inline-flex items-center gap-2 bg-emerald-600 text-white font-semibold text-xs sm:text-sm py-2.5 px-6 rounded-xl shadow-md";
+                }
+                deferredPrompt = null;
+            } else if (isIos()) {
+                if (iosNotice) {
+                    iosNotice.classList.toggle('hidden');
+                }
+            } else {
+                alert("To add UK Company Radar to your device, use your browser's menu (⋮ or Share) and choose 'Add to Home screen' or 'Install App'.");
+            }
+        });
+    }
+
     /* ŞİRKET DETAY MODAL'I */
     async function openCompanyModal(companyNumber) {
         const modal = document.getElementById('companyModal');

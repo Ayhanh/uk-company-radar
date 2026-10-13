@@ -13,7 +13,7 @@ from typing import Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Form, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import requests
@@ -574,14 +574,11 @@ async def dodo_webhook(request: Request):
     raw_body = await request.body()
     headers = request.headers
     
-    # Dodo / Svix imza kontrolü (opsiyonel güvenli doğrulama)
     webhook_signature = headers.get("webhook-signature") or headers.get("Webhook-Signature")
     if DODO_WEBHOOK_SECRET and webhook_signature:
-        # İmzayı doğrula veya logla
         computed_sig = hmac.new(
             DODO_WEBHOOK_SECRET.encode("utf-8"), raw_body, hashlib.sha256
         ).hexdigest()
-        # Not: Svix header'ı 'v1,t=...' biçiminde gelirse karşılaştırmayı esnetebiliriz
         if computed_sig in webhook_signature:
             pass
 
@@ -590,11 +587,9 @@ async def dodo_webhook(request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
-    # Dodo Payments olay yapısı
     event_type = payload.get("type") or payload.get("event")
     event_data = payload.get("data", {})
 
-    # Müşteri e-postasını çıkart
     customer_email = ""
     if isinstance(event_data.get("customer"), dict):
         customer_email = event_data["customer"].get("email") or ""
@@ -615,18 +610,15 @@ async def dodo_webhook(request: Request):
     conn = get_db()
     cursor = conn.cursor()
 
-    # 1. Başarılı Ödeme veya Abonelik Başlatma
     if event_type in ["payment.succeeded", "subscription.active", "checkout.session.completed"]:
         q_update = format_query("UPDATE users SET is_pro = 1 WHERE lower(email) = ?")
         cursor.execute(q_update, (customer_email,))
         conn.commit()
 
-        # Kullanıcı chat ID'sini bul
         q_user = format_query("SELECT telegram_chat_id FROM users WHERE lower(email) = ?")
         cursor.execute(q_user, (customer_email,))
         user_row = cursor.fetchone()
 
-        # Kullanıcıya tebrik mesajı
         if user_row and user_row.get("telegram_chat_id"):
             pro_msg = (
                 "🎉 <b>UK Company Radar | PRO Membership Activated!</b>\n\n"
@@ -637,7 +629,6 @@ async def dodo_webhook(request: Request):
             )
             await send_telegram(user_row["telegram_chat_id"], pro_msg)
 
-        # Yöneticiye satış bildirimi
         admin_sale_msg = (
             "💰 <b>NEW DODO PAYMENTS SALE!</b>\n\n"
             f"👤 <b>Customer:</b> <code>{customer_email}</code>\n"
@@ -647,7 +638,6 @@ async def dodo_webhook(request: Request):
         )
         await send_telegram(admin_telegram_chat_id, admin_sale_msg)
 
-    # 2. Abonelik İptali / Süre Sonu
     elif event_type in ["subscription.cancelled", "subscription.expired", "subscription.paused"]:
         q_cancel = format_query("UPDATE users SET is_pro = 0 WHERE lower(email) = ?")
         cursor.execute(q_cancel, (customer_email,))
@@ -1378,3 +1368,16 @@ async def support_ticket_api(request: Request):
     except Exception as e:
         print(f"[Support Ticket Error]: {e}")
         return {"success": True, "message": "Ticket successfully received."}
+
+
+# ---------------------------------------------------------
+# PWA (PROGRESSIVE WEB APP) ENDPOINT'LERİ
+# ---------------------------------------------------------
+@app.get("/manifest.json")
+async def get_manifest():
+    return FileResponse(static_dir / "manifest.json", media_type="application/manifest+json")
+
+
+@app.get("/sw.js")
+async def get_sw():
+    return FileResponse(static_dir / "sw.js", media_type="application/javascript")
