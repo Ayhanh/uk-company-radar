@@ -162,7 +162,7 @@
         <!-- ARAMA SONUÇLARI -->
         {% if results %}
         <section class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
-            <h3 class="text-xs font-bold tracking-wider uppercase text-slate-500">OFFICIAL COMPANIES HOUSE RECORDS ({{ results|length }})</h3>
+            <h3 class="text-xs font-bold tracking-wider uppercase text-slate-500">UK CORPORATE REGISTRY RECORDS ({{ results|length }})</h3>
             <div class="divide-y divide-slate-100">
                 {% for item in results %}
                 <div class="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -887,5 +887,8 @@
     <!-- Cloudflare Web Analytics -->
     <script type='module' src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "9ffb911737054635a5e93e0aabec2e25"}'></script>
     <!-- End Cloudflare Web Analytics -->
+    <p class="text-[11px] text-slate-400 mt-2">
+    UK Company Radar is an independent business intelligence tool and is not affiliated with, endorsed by, or part of Companies House or the UK Government.
+    </p>
 </body>
 </html>
