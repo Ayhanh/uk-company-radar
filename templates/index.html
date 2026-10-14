@@ -492,9 +492,12 @@
                     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
                         <div>
                             <div class="text-[11px] font-bold uppercase tracking-wider text-blue-400">Automated Solvency & Counterparty Risk</div>
-                            <div class="text-xs text-slate-400 mt-0.5">Based on statutory filings, charges & corporate activity</div>
+                            <div class="text-xs font-semibold text-slate-200 mt-0.5">Registry & Statutory Filing Health Score</div>
+                            <p class="text-[11px] text-slate-400 mt-0.5 leading-snug">
+                                Evaluated against statutory deadlines, public encumbrances (mortgages/charges), and active registrar standing.
+                            </p>
                         </div>
-                        <div class="flex items-center gap-3">
+                        <div class="flex items-center gap-3 flex-shrink-0">
                             <div class="text-right">
                                 <span id="modalRiskScoreText" class="text-2xl font-black text-white">--/100</span>
                                 <span class="block text-[10px] uppercase font-bold text-slate-400">Calculated Score</span>
@@ -560,9 +563,22 @@
 
                 <!-- 3. Yönetim & Direktörler (Officers) -->
                 <div>
-                    <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">3. Active Directors & Officers</h4>
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400">3. Active Directors & Leadership</h4>
+                        <span id="modalDirectorsCount" class="text-[11px] font-semibold text-slate-500"></span>
+                    </div>
+                    
+                    <!-- Sadece Direktör Kartları -->
                     <div id="modalOfficersList" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                        <!-- Dinamik Direktör Listesi -->
+                        <!-- JS ile dolacak -->
+                    </div>
+
+                    <!-- Kompakt Sekreterler Alanı -->
+                    <div id="modalSecretariesWrapper" class="mt-3 pt-3 border-t border-slate-100 hidden">
+                        <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Company Secretarial:</span>
+                        <div id="modalSecretariesList" class="text-xs text-slate-600 flex flex-wrap gap-2">
+                            <!-- JS ile dolacak -->
+                        </div>
                     </div>
                 </div>
 
@@ -823,15 +839,35 @@
                 chargesContainer.innerHTML = '<div class="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs text-slate-500 italic">No registered mortgages or floating charges found. Clean legal profile.</div>';
             }
             
-            // Direktörler / Officers
+            // Direktörler ve Sekreterleri Ayrıştırma Mantığı
             const officersContainer = document.getElementById('modalOfficersList');
+            const directorsCount = document.getElementById('modalDirectorsCount');
+            const secWrapper = document.getElementById('modalSecretariesWrapper');
+            const secContainer = document.getElementById('modalSecretariesList');
+            
             officersContainer.innerHTML = '';
-            if (data.officers && data.officers.length > 0) {
-                data.officers.forEach(off => {
+            secContainer.innerHTML = '';
+            
+            const rawOfficers = data.officers || [];
+            
+            const directors = rawOfficers.filter(o => {
+                const role = (o.officer_role || '').toLowerCase();
+                return role.includes('director') || role.includes('llp-designated-member') || role.includes('member');
+            });
+
+            const secretaries = rawOfficers.filter(o => {
+                const role = (o.officer_role || '').toLowerCase();
+                return role.includes('secretary');
+            });
+
+            // 1. Direktörleri Kart Olarak Ekle
+            if (directors.length > 0) {
+                if (directorsCount) directorsCount.innerText = `${directors.length} Active Director(s)`;
+                directors.forEach(off => {
                     officersContainer.innerHTML += `
                         <div class="p-3 bg-slate-50 rounded-xl border border-slate-200 flex flex-col justify-between">
                             <div>
-                                <span class="text-[10px] uppercase font-bold text-slate-400 block">${off.officer_role || 'Director'}</span>
+                                <span class="text-[10px] uppercase font-bold text-blue-600 block tracking-wider">${off.officer_role || 'Director'}</span>
                                 <span class="font-semibold text-slate-800 text-xs block mt-0.5">${off.name}</span>
                             </div>
                             <div class="text-[11px] text-slate-500 mt-2 flex justify-between">
@@ -842,7 +878,22 @@
                     `;
                 });
             } else {
-                officersContainer.innerHTML = '<div class="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs text-slate-500 italic col-span-2">No active officer records listed.</div>';
+                if (directorsCount) directorsCount.innerText = '0 Listed';
+                officersContainer.innerHTML = '<div class="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs text-slate-500 italic col-span-2">No active director records listed.</div>';
+            }
+
+            // 2. Sekreterleri Tek Satırlık Kompakt Rozet/Liste Olarak Ekle
+            if (secretaries.length > 0) {
+                secWrapper.classList.remove('hidden');
+                secretaries.forEach(sec => {
+                    secContainer.innerHTML += `
+                        <span class="inline-flex items-center gap-1 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-lg text-[11px] text-slate-700">
+                            <span class="text-slate-400">🖋️</span> ${sec.name}
+                        </span>
+                    `;
+                });
+            } else {
+                secWrapper.classList.add('hidden');
             }
 
             loading.classList.add('hidden');
