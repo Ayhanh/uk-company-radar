@@ -1,1010 +1,1564 @@
-﻿<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>UK Company Radar - Trade with Confidence & Protect Your Cash Flow</title>
-    <!-- FAVICON -->
-    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+﻿import asyncio
+from datetime import date, datetime, timedelta
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+import hashlib
+import hmac
+import os
+from pathlib import Path
+import re
+import secrets
+import smtplib
+from typing import Optional
 
-    <!-- PWA & MOBILE CONFIGURATION -->
-    <link rel="manifest" href="/manifest.json">
-    <meta name="theme-color" content="#0f172a">
-    <meta name="mobile-web-app-capable" content="yes">
+from dotenv import load_dotenv
+from fastapi import FastAPI, Form, Header, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+import requests
+import sqlite3
 
-    <!-- APPLE / IOS META TAGS -->
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="CompanyRadar">
-    <link rel="apple-touch-icon" href="/static/favicon.svg">
+# ---------------------------------------------------------
+# KONFIGURASYON & SABİT DEĞİŞKENLER
+# ---------------------------------------------------------
+BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")
+DB_FILE = BASE_DIR / "companies.db"
+BASE_URL = "https://api.company-information.service.gov.uk"
 
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <style>
-        body { font-family: 'Inter', sans-serif; }
-    </style>
-</head>
-<body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col antialiased">
+COMPANIES_HOUSE_API_KEY = os.getenv("COMPANIES_HOUSE_API_KEY", "").strip()
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+SECRET_KEY = os.getenv("SECRET_KEY", "").strip()
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+APP_BASE_URL = os.getenv("APP_BASE_URL", "https://uk-company-radar.onrender.com").rstrip("/")
+DEBUG_MODE = os.getenv("DEBUG", "false").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
-    <!-- ÜST MENÜ & NAVBAR -->
-    <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
-        <div class="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
-            <a href="/" class="flex items-center gap-3">
-                <div class="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center font-bold text-lg shadow-sm">
-                    🛡️
-                </div>
+# SMTP Ayarları
+SMTP_SERVER = os.getenv("SMTP_SERVER", "").strip()
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "").strip()
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
+SMTP_FROM = os.getenv("SMTP_FROM", "support@ukcompanyradar.com").strip()
+
+# Lemon Squeezy Signing Secret
+LEMON_WEBHOOK_SECRET = os.getenv(
+    "LEMON_WEBHOOK_SECRET", "uk_radar_secret_2026"
+).strip()
+
+# Dodo Payments Webhook Secret (Render Environment Variable)
+DODO_WEBHOOK_SECRET = os.getenv("DODO_WEBHOOK_SECRET", "").strip()
+
+ADMIN_EMAILS = [
+    os.getenv("ADMIN_EMAIL", "ayhan.hakyemez@gmail.com").strip().lower()
+]
+
+# FastAPI Başlatma & Statik Klasör Bağlama
+app = FastAPI(title="UK Company Radar")
+
+static_dir = BASE_DIR / "static"
+static_dir.mkdir(exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+# ---------------------------------------------------------
+# VERİTABANI YÖNETİMİ (POSTGRESQL / SQLITE HİBRİT)
+# ---------------------------------------------------------
+USE_PG = bool(DATABASE_URL)
+if USE_PG:
+    import psycopg2
+    import psycopg2.extras
+    if DATABASE_URL.startswith("postgres://"):
+        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+
+def get_db():
+    if USE_PG:
+        conn = psycopg2.connect(
+            DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor
+        )
+        return conn
+    else:
+        conn = sqlite3.connect(DB_FILE)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+
+def format_query(sql: str) -> str:
+    if USE_PG:
+        return sql.replace("?", "%s")
+    return sql
+
+
+def init_db():
+    conn = get_db()
+    cursor = conn.cursor()
+    if USE_PG:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                telegram_chat_id TEXT,
+                is_pro INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS watchlist (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                company_number TEXT NOT NULL,
+                company_name TEXT NOT NULL,
+                status TEXT NOT NULL,
+                type TEXT,
+                jurisdiction TEXT,
+                last_filing_date TEXT,
+                last_filing_description TEXT,
+                last_filing_category TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, company_number)
+            );
+            CREATE TABLE IF NOT EXISTS search_logs (
+                id SERIAL PRIMARY KEY,
+                identifier TEXT NOT NULL,
+                search_date DATE NOT NULL,
+                count INTEGER DEFAULT 1,
+                UNIQUE(identifier, search_date)
+            );
+            CREATE TABLE IF NOT EXISTS sessions (
+                session_id TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS password_resets (
+                token TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                expires_at TIMESTAMP NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+    else:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                telegram_chat_id TEXT,
+                is_pro INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS watchlist (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                company_number TEXT NOT NULL,
+                company_name TEXT NOT NULL,
+                status TEXT NOT NULL,
+                type TEXT,
+                jurisdiction TEXT,
+                last_filing_date TEXT,
+                last_filing_description TEXT,
+                last_filing_category TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id),
+                UNIQUE(user_id, company_number)
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS search_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                identifier TEXT NOT NULL,
+                search_date DATE NOT NULL,
+                count INTEGER DEFAULT 1,
+                UNIQUE(identifier, search_date)
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                session_id TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id)
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS password_resets (
+                token TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                expires_at TIMESTAMP NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id)
+            )
+        """)
+        cursor.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_watchlist_user_company ON"
+            " watchlist(user_id, company_number)"
+        )
+
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------
+# ŞİFRELEME
+# ---------------------------------------------------------
+def hash_password(password: str) -> str:
+    salt = secrets.token_hex(16)
+    key = hashlib.pbkdf2_hmac(
+        "sha256", password.encode("utf-8"), salt.encode("utf-8"), 100000
+    )
+    return f"{salt}${key.hex()}"
+
+
+def verify_password(stored_hash: str, password: str) -> bool:
+    try:
+        salt, key_hex = stored_hash.split("$")
+        key = hashlib.pbkdf2_hmac(
+            "sha256", password.encode("utf-8"), salt.encode("utf-8"), 100000
+        )
+        return key.hex() == key_hex
+    except Exception:
+        return False
+
+
+# ---------------------------------------------------------
+# E-POSTA İLE ŞİFRE SIFIRLAMA GÖNDERİCİSİ
+# ---------------------------------------------------------
+def send_reset_email(to_email: str, reset_link: str):
+    if not SMTP_SERVER or not SMTP_USER:
+        print(f"\n=======================================================")
+        print(f"[PASSWORD RESET LINK for {to_email}]:")
+        print(reset_link)
+        print(f"=======================================================\n")
+        return
+
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = "Reset Your UK Company Radar Password"
+        msg["From"] = SMTP_FROM
+        msg["To"] = to_email
+
+        html = f"""
+        <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; rounded: 12px;">
+            <h2 style="color: #0f172a; margin-bottom: 8px;">UK Company Radar</h2>
+            <p style="color: #475569; font-size: 14px;">We received a request to reset your password. Click the link below to set a new password:</p>
+            <div style="margin: 25px 0;">
+                <a href="{reset_link}" style="background-color: #0f172a; color: #ffffff; padding: 10px 20px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 14px; display: inline-block;">Reset Password</a>
+            </div>
+            <p style="color: #94a3b8; font-size: 12px;">This link will expire in 1 hour. If you did not request this, please ignore this email.</p>
+        </div>
+        """
+        msg.attach(MIMEText(html, "html"))
+
+        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=10)
+        server.starttls()
+        server.login(SMTP_USER, SMTP_PASSWORD)
+        server.sendmail(SMTP_FROM, [to_email], msg.as_string())
+        server.quit()
+    except Exception as e:
+        print(f"[SMTP Send Error]: {e}")
+
+
+# ---------------------------------------------------------
+# TELEGRAM BİLDİRİM (NON-BLOCKING ASYNC)
+# ---------------------------------------------------------
+def _send_telegram_worker(chat_id: str, message: str):
+    if not chat_id or not TELEGRAM_BOT_TOKEN:
+        return
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": str(chat_id).strip(),
+        "text": message,
+        "parse_mode": "HTML",
+    }
+    try:
+        res = requests.post(url, json=payload, timeout=8)
+        data = res.json()
+        if not data.get("ok"):
+            print(f"[Telegram Alert Failed for {chat_id}]: {data.get('description')}")
+    except Exception as e:
+        print(f"[Telegram Network Error]: {e}")
+
+
+async def send_telegram(chat_id: str, message: str):
+    await asyncio.to_thread(_send_telegram_worker, chat_id, message)
+
+
+# ---------------------------------------------------------
+# YARDIMCI METODLAR & KULLANICI
+# ---------------------------------------------------------
+def normalize_company_number(value: str) -> str:
+    return (value or "").strip().upper().replace(" ", "")
+
+
+def is_valid_telegram_chat_id(chat_id: str) -> bool:
+    if chat_id is None:
+        return False
+    return bool(re.fullmatch(r"-?\d{6,20}", str(chat_id).strip()))
+
+
+def get_current_user(request: Request):
+    session_id = request.cookies.get("session_id")
+    if not session_id:
+        return None
+    conn = get_db()
+    cursor = conn.cursor()
+    query = format_query("""
+        SELECT u.id, u.email, u.telegram_chat_id, u.is_pro 
+        FROM users u 
+        JOIN sessions s ON u.id = s.user_id 
+        WHERE s.session_id = ?
+    """)
+    cursor.execute(query, (session_id,))
+    user = cursor.fetchone()
+    conn.close()
+
+    if not user:
+        return None
+
+    user_dict = dict(user)
+    if user_dict["email"].lower() in ADMIN_EMAILS:
+        user_dict["is_pro"] = 1
+        user_dict["is_admin"] = True
+    else:
+        user_dict["is_admin"] = False
+
+    return user_dict
+
+
+def get_search_count(identifier: str) -> int:
+    today = date.today().isoformat()
+    conn = get_db()
+    cursor = conn.cursor()
+    query = format_query(
+        "SELECT count FROM search_logs WHERE identifier = ? AND search_date = ?"
+    )
+    cursor.execute(query, (identifier, today))
+    row = cursor.fetchone()
+    conn.close()
+    return row["count"] if row else 0
+
+
+def increment_search_count(identifier: str):
+    today = date.today().isoformat()
+    conn = get_db()
+    cursor = conn.cursor()
+    query = format_query("""
+        INSERT INTO search_logs (identifier, search_date, count) 
+        VALUES (?, ?, 1)
+        ON CONFLICT(identifier, search_date) DO UPDATE SET count = search_logs.count + 1
+    """)
+    cursor.execute(query, (identifier, today))
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------
+# THE GAZETTE API (OFFICIAL PUBLIC RECORD)
+# ---------------------------------------------------------
+def check_the_gazette_notices(company_number: str) -> list:
+    """
+    The Gazette açık veri servisinden şirkete ait resmi iflas ve tasfiye
+    ilanlarını (Corporate Insolvency) anlık olarak sorgular.
+    """
+    cleaned_num = normalize_company_number(company_number)
+    if not cleaned_num:
+        return []
+
+    url = "https://www.thegazette.co.uk/all-notices/notice/data.json"
+    params = {
+        "text": cleaned_num,
+        "categorycode": "G205010000",  # Corporate Insolvency & Winding-up
+        "results-page-size": 5
+    }
+    headers = {
+        "User-Agent": "UKCompanyRadar/1.0 (Public Research)"
+    }
+    
+    try:
+        res = requests.get(url, params=params, headers=headers, timeout=6)
+        if res.status_code == 200:
+            data = res.json()
+            entries = data.get("entry", [])
+            if isinstance(entries, dict):
+                entries = [entries]
+            
+            notices = []
+            for item in entries:
+                notices.append({
+                    "title": item.get("title", "Insolvency Notice"),
+                    "date": (item.get("published") or "")[:10],
+                    "link": item.get("id") or (item.get("link", {}).get("@href") if isinstance(item.get("link"), dict) else "")
+                })
+            return notices
+    except Exception as e:
+        print(f"[The Gazette Exception]: {e}")
+        
+    return []
+
+
+# ---------------------------------------------------------
+# COMPANIES HOUSE API
+# ---------------------------------------------------------
+def search_companies_house(query: str):
+    if not COMPANIES_HOUSE_API_KEY:
+        print("[Companies House Error]: Key missing!")
+        return []
+    cleaned_query = (query or "").strip()
+    if not cleaned_query:
+        return []
+    url = f"{BASE_URL}/search/companies"
+    try:
+        res = requests.get(
+            url,
+            params={"q": cleaned_query},
+            auth=(COMPANIES_HOUSE_API_KEY, ""),
+            timeout=8,
+        )
+        if res.status_code == 200:
+            return res.json().get("items", [])
+    except Exception as e:
+        print(f"[Companies House Exception]: {e}")
+    return []
+
+
+def get_company_profile(company_number: str):
+    if not COMPANIES_HOUSE_API_KEY:
+        return None
+    normalized_number = normalize_company_number(company_number)
+    if not normalized_number:
+        return None
+    url = f"{BASE_URL}/company/{normalized_number}"
+    try:
+        res = requests.get(url, auth=(COMPANIES_HOUSE_API_KEY, ""), timeout=8)
+        if res.status_code == 200:
+            return res.json()
+    except Exception as e:
+        print(f"[Companies House Profile Exception]: {e}")
+    return None
+
+
+def get_latest_filing_update(company_number: str):
+    if not COMPANIES_HOUSE_API_KEY:
+        return None, None, None
+    normalized_number = normalize_company_number(company_number)
+    if not normalized_number:
+        return None, None, None
+
+    url = f"{BASE_URL}/company/{normalized_number}/filing-history"
+    params = {"category": "insolvency", "items_per_page": 1}
+    try:
+        res = requests.get(
+            url, params=params, auth=(COMPANIES_HOUSE_API_KEY, ""), timeout=8
+        )
+        if res.status_code == 200:
+            items = res.json().get("items", [])
+            if items:
+                item = items[0]
+                return (
+                    item.get("date"),
+                    item.get("description", ""),
+                    item.get("category", "insolvency"),
+                )
+    except Exception as e:
+        print(f"[Companies House Filing Exception]: {e}")
+    return None, None, None
+
+
+def get_company_officers(company_number: str):
+    if not COMPANIES_HOUSE_API_KEY:
+        return []
+    normalized_number = normalize_company_number(company_number)
+    url = f"{BASE_URL}/company/{normalized_number}/officers"
+    try:
+        res = requests.get(url, auth=(COMPANIES_HOUSE_API_KEY, ""), timeout=8)
+        if res.status_code == 200:
+            return res.json().get("items", [])
+    except Exception as e:
+        print(f"[Companies House Officers Error]: {e}")
+    return []
+
+
+def get_company_charges(company_number: str):
+    if not COMPANIES_HOUSE_API_KEY:
+        return []
+    normalized_number = normalize_company_number(company_number)
+    url = f"{BASE_URL}/company/{normalized_number}/charges"
+    try:
+        res = requests.get(url, auth=(COMPANIES_HOUSE_API_KEY, ""), timeout=8)
+        if res.status_code == 200:
+            return res.json().get("items", [])
+    except Exception as e:
+        print(f"[Companies House Charges Error]: {e}")
+    return []
+
+
+# ---------------------------------------------------------
+# KURAL TABANLI RİSK SKORU VE DEĞERLEME MOTORU
+# ---------------------------------------------------------
+def calculate_company_risk_score(profile: dict, charges: list = None, gazette_notices: list = None) -> dict:
+    """
+    Companies House ve The Gazette resmi verilerine dayanarak 0-100 arası 
+    risk skoru ve gerekçeli analiz faktörlerini üretir.
+    """
+    score = 100
+    factors = []
+    
+    if not profile:
+        return {
+            "score": 50,
+            "level": "UNKNOWN",
+            "badge_color": "slate",
+            "action_required": False,
+            "factors": [{"type": "warning", "text": "Insufficient registry data to evaluate counterparty risk."}]
+        }
+    
+    status = (profile.get("company_status") or "unknown").lower()
+    
+    # 1. Hukuki Varlık / İflas Durumu
+    if status in ["liquidation", "administration", "receivership", "insolvent"]:
+        return {
+            "score": 10,
+            "level": "CRITICAL RISK",
+            "badge_color": "rose",
+            "action_required": True,
+            "factors": [
+                {"type": "danger", "text": f"Entity is officially under {status.upper()} / insolvency proceedings."},
+                {"type": "danger", "text": "Immediate creditor exposure. Trading on credit strongly discouraged."}
+            ]
+        }
+    elif status in ["dissolved", "converted-closed"]:
+        return {
+            "score": 15,
+            "level": "HIGH RISK",
+            "badge_color": "rose",
+            "action_required": True,
+            "factors": [
+                {"type": "danger", "text": f"Entity is officially {status.upper()} on the corporate registry."},
+                {"type": "danger", "text": "Ceased trading legally; contracts cannot be enforced."}
+            ]
+        }
+    else:
+        factors.append({"type": "positive", "text": "Entity maintains ACTIVE status on official UK registries."})
+    
+    # 2. The Gazette İflas / Alacaklı İlanı Kontrolü (Yeni)
+    if gazette_notices:
+        score -= 40
+        factors.append({
+            "type": "danger",
+            "text": f"CRITICAL: Found {len(gazette_notices)} official insolvency notice(s) published in The Gazette (-40 pts)."
+        })
+    else:
+        factors.append({
+            "type": "positive",
+            "text": "Zero insolvency or winding-up notices published in The Gazette (Official Public Record)."
+        })
+
+    # 3. Yasal Teslimat Tarihleri (Overdue Accounts & Confirmation)
+    accounts = profile.get("accounts", {})
+    if accounts.get("overdue", False):
+        score -= 25
+        factors.append({"type": "danger", "text": "Annual financial accounts filing is OVERDUE at Companies House (-25 pts)."})
+    else:
+        factors.append({"type": "positive", "text": "Financial reporting obligations are up to date."})
+        
+    conf_stmt = profile.get("confirmation_statement", {})
+    if conf_stmt.get("overdue", False):
+        score -= 20
+        factors.append({"type": "danger", "text": "Annual Confirmation Statement (PSC / ownership) is past due (-20 pts)."})
+    else:
+        factors.append({"type": "positive", "text": "Confirmation statement filings are compliant."})
+        
+    # 4. İpotek & Teminatlı Borçlar (Charges / Floating Mortgages)
+    if charges:
+        outstanding_charges = [c for c in charges if c.get("status") == "outstanding"]
+        if outstanding_charges:
+            penalty = min(30, len(outstanding_charges) * 10)
+            score -= penalty
+            factors.append({
+                "type": "warning", 
+                "text": f"{len(outstanding_charges)} outstanding secured floating charge(s)/mortgage(s) registered on assets (-{penalty} pts)."
+            })
+        else:
+            factors.append({"type": "positive", "text": "Zero outstanding floating charges registered (No secured bank encumbrances)."})
+    else:
+        factors.append({"type": "positive", "text": "No registered mortgage or debenture encumbrance on file."})
+            
+    # 5. Şirket Yaşı & Kurumsal Tecrübe
+    inc_date_str = profile.get("date_of_creation")
+    if inc_date_str:
+        try:
+            inc_date = datetime.strptime(inc_date_str, "%Y-%m-%d").date()
+            age_days = (date.today() - inc_date).days
+            if age_days < 365:
+                score -= 10
+                factors.append({"type": "warning", "text": "Newly formed entity (<12 months trading history) (-10 pts)."})
+            elif age_days > 1825:
+                factors.append({"type": "positive", "text": f"Established corporate track record ({age_days // 365} years in business)."})
+        except Exception:
+            pass
+
+    score = max(5, min(100, score))
+    
+    if score >= 80:
+        level = "LOW RISK"
+        badge_color = "emerald"
+        action_required = False
+    elif score >= 50:
+        level = "MODERATE RISK"
+        badge_color = "amber"
+        action_required = False
+    else:
+        level = "HIGH RISK"
+        badge_color = "rose"
+        action_required = True
+
+    return {
+        "score": score,
+        "level": level,
+        "badge_color": badge_color,
+        "action_required": action_required,
+        "factors": factors
+    }
+
+
+# ---------------------------------------------------------
+# ARKA PLAN GÖREVİ
+# ---------------------------------------------------------
+async def automated_background_monitor():
+    while True:
+        try:
+            conn = get_db()
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT w.id, w.user_id, w.company_number, w.company_name, w.status, w.last_filing_date,
+                       w.last_filing_description, w.last_filing_category, u.telegram_chat_id
+                FROM watchlist w
+                JOIN users u ON w.user_id = u.id
+            """)
+            items = cursor.fetchall()
+
+            for item in items:
+                live_profile = get_company_profile(item["company_number"])
+                if not live_profile:
+                    continue
+
+                new_status = (live_profile.get("company_status") or "unknown").lower()
+                old_status = (item["status"] or "unknown").lower()
+                (
+                    latest_filing_date,
+                    latest_filing_description,
+                    latest_filing_category,
+                ) = get_latest_filing_update(item["company_number"])
+
+                status_changed = old_status != new_status
+                filing_changed = (
+                    latest_filing_date is not None
+                    and latest_filing_date != item["last_filing_date"]
+                )
+
+                if status_changed or filing_changed:
+                    if status_changed:
+                        q_update = format_query("""
+                            UPDATE watchlist 
+                            SET status = ?, 
+                                last_filing_date = COALESCE(?, last_filing_date), 
+                                last_filing_description = COALESCE(?, last_filing_description), 
+                                last_filing_category = COALESCE(?, last_filing_category) 
+                            WHERE id = ?
+                        """)
+                        cursor.execute(
+                            q_update,
+                            (
+                                live_profile.get("company_status", "unknown"),
+                                latest_filing_date,
+                                latest_filing_description,
+                                latest_filing_category,
+                                item["id"],
+                            ),
+                        )
+                        if item["telegram_chat_id"]:
+                            alert_msg = (
+                                "🚨 <b>CRITICAL RISK ALERT: STATUS CHANGE DETECTED</b>\n\n"
+                                f"<b>Company:</b> {item['company_name']}"
+                                f" ({item['company_number']})\n<b>Previous Status:</b>"
+                                f" {old_status.upper()}\n<b>New Status:</b> ⚠️"
+                                f" <b>{new_status.upper()}</b>\n\n<i>Immediate attention"
+                                " recommended. Check official filings.</i>"
+                            )
+                            await send_telegram(item["telegram_chat_id"], alert_msg)
+                    if filing_changed and item["telegram_chat_id"]:
+                        filing_msg = (
+                            "🚨 <b>INSOLVENCY / GAZETTE ALERT</b>\n\n<b>Company:</b>"
+                            f" {item['company_name']} ({item['company_number']})\n<b>Latest"
+                            f" filing:</b> {latest_filing_description or 'Insolvency Notice'}\n<b>Category:</b>"
+                            f" {latest_filing_category or 'Insolvency'}\n<b>Date:</b>"
+                            f" {latest_filing_date}\n\n<i>New official notice detected in"
+                            " filing history.</i>"
+                        )
+                        await send_telegram(item["telegram_chat_id"], filing_msg)
+
+                q_sync = format_query("""
+                    UPDATE watchlist 
+                    SET company_name = ?, 
+                        status = ?, 
+                        last_filing_date = COALESCE(?, last_filing_date), 
+                        last_filing_description = COALESCE(?, last_filing_description), 
+                        last_filing_category = COALESCE(?, last_filing_category) 
+                    WHERE id = ?
+                """)
+                cursor.execute(
+                    q_sync,
+                    (
+                        live_profile.get("company_name", item["company_name"]),
+                        live_profile.get("company_status", "unknown"),
+                        latest_filing_date,
+                        latest_filing_description,
+                        latest_filing_category,
+                        item["id"],
+                    ),
+                )
+
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"[Background Monitor Error]: {e}")
+
+        await asyncio.sleep(3600)
+
+
+@app.on_event("startup")
+async def startup_event():
+    init_db()
+    asyncio.create_task(automated_background_monitor())
+
+
+# ---------------------------------------------------------
+# DODO PAYMENTS WEBHOOK ENTEGRASYONU
+# ---------------------------------------------------------
+@app.post("/api/dodo-webhook")
+async def dodo_webhook(request: Request):
+    raw_body = await request.body()
+    headers = request.headers
+    
+    webhook_signature = headers.get("webhook-signature") or headers.get("Webhook-Signature")
+    if DODO_WEBHOOK_SECRET and webhook_signature:
+        computed_sig = hmac.new(
+            DODO_WEBHOOK_SECRET.encode("utf-8"), raw_body, hashlib.sha256
+        ).hexdigest()
+        if computed_sig in webhook_signature:
+            pass
+
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    event_type = payload.get("type") or payload.get("event")
+    event_data = payload.get("data", {})
+
+    customer_email = ""
+    if isinstance(event_data.get("customer"), dict):
+        customer_email = event_data["customer"].get("email") or ""
+    elif isinstance(event_data.get("customer"), str) and "@" in event_data.get("customer"):
+        customer_email = event_data.get("customer")
+    elif event_data.get("billing_email"):
+        customer_email = event_data.get("billing_email")
+    elif event_data.get("customer_email"):
+        customer_email = event_data.get("customer_email")
+
+    customer_email = customer_email.strip().lower()
+
+    if not customer_email:
+        print(f"[Dodo Webhook Warning]: No email found in payload. Event: {event_type}")
+        return {"status": "no_email_ignored"}
+
+    admin_telegram_chat_id = os.getenv("MY_TELEGRAM_ID", "-4367179502").strip()
+    conn = get_db()
+    cursor = conn.cursor()
+
+    if event_type in ["payment.succeeded", "subscription.active", "checkout.session.completed"]:
+        q_update = format_query("UPDATE users SET is_pro = 1 WHERE lower(email) = ?")
+        cursor.execute(q_update, (customer_email,))
+        conn.commit()
+
+        q_user = format_query("SELECT telegram_chat_id FROM users WHERE lower(email) = ?")
+        cursor.execute(q_user, (customer_email,))
+        user_row = cursor.fetchone()
+
+        if user_row and user_row.get("telegram_chat_id"):
+            pro_msg = (
+                "🎉 <b>UK Company Radar | PRO Membership Activated!</b>\n\n"
+                "Thank you for subscribing! Your account has been upgraded to <b>PRO</b>.\n"
+                "• Unlimited daily company searches\n"
+                "• Unlimited tracked entities in your watchlist\n"
+                "• Priority real-time alert notifications"
+            )
+            await send_telegram(user_row["telegram_chat_id"], pro_msg)
+
+        admin_sale_msg = (
+            "💰 <b>NEW DODO PAYMENTS SALE!</b>\n\n"
+            f"👤 <b>Customer:</b> <code>{customer_email}</code>\n"
+            f"📦 <b>Event:</b> <code>{event_type}</code>\n"
+            f"💳 <b>Provider:</b> Dodo Payments (MoR)\n"
+            f"🕒 <i>Time: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC</i>"
+        )
+        await send_telegram(admin_telegram_chat_id, admin_sale_msg)
+
+    elif event_type in ["subscription.cancelled", "subscription.expired", "subscription.paused"]:
+        q_cancel = format_query("UPDATE users SET is_pro = 0 WHERE lower(email) = ?")
+        cursor.execute(q_cancel, (customer_email,))
+        conn.commit()
+
+        q_user = format_query("SELECT telegram_chat_id FROM users WHERE lower(email) = ?")
+        cursor.execute(q_user, (customer_email,))
+        user_row = cursor.fetchone()
+
+        if user_row and user_row.get("telegram_chat_id"):
+            cancel_msg = (
+                "ℹ️ <b>UK Company Radar | Subscription Ended</b>\n\n"
+                "Your Pro membership has concluded. Your account is now on the complimentary tier."
+            )
+            await send_telegram(user_row["telegram_chat_id"], cancel_msg)
+
+    conn.close()
+    return {"status": "success", "event": event_type}
+
+
+# ---------------------------------------------------------
+# LEMON SQUEEZY WEBHOOK ENTEGRASYONU (ESKİ / YEDEK)
+# ---------------------------------------------------------
+@app.post("/api/lemon-webhook")
+async def lemon_webhook(
+    request: Request, x_signature: str = Header(None, alias="X-Signature")
+):
+    raw_body = await request.body()
+
+    digest = hmac.new(
+        LEMON_WEBHOOK_SECRET.encode("utf-8"), raw_body, hashlib.sha256
+    ).hexdigest()
+
+    if not hmac.compare_digest(digest, x_signature or ""):
+        print("[Lemon Webhook Error]: Geçersiz imza!")
+        raise HTTPException(status_code=400, detail="Invalid signature")
+
+    payload = await request.json()
+    meta = payload.get("meta", {})
+    event_name = meta.get("event_name")
+    attributes = payload.get("data", {}).get("attributes", {})
+
+    customer_email = (attributes.get("user_email") or "").strip().lower()
+    status = attributes.get("status")
+
+    if not customer_email:
+        return {"status": "no_email"}
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    if event_name in ["subscription_created", "subscription_updated"]:
+        if status == "active":
+            q_update = format_query(
+                "UPDATE users SET is_pro = 1 WHERE lower(email) = ?"
+            )
+            cursor.execute(q_update, (customer_email,))
+            conn.commit()
+
+            q_user = format_query(
+                "SELECT telegram_chat_id FROM users WHERE lower(email) = ?"
+            )
+            cursor.execute(q_user, (customer_email,))
+            user_row = cursor.fetchone()
+
+            if user_row and user_row["telegram_chat_id"]:
+                pro_msg = (
+                    "🎉 <b>UK Company Radar | PRO Membership Activated!</b>\n\n"
+                    "Thank you for subscribing! Your account has been upgraded to"
+                    " <b>PRO</b>.\n"
+                    "• Unlimited daily company searches\n"
+                    "• Unlimited tracked entities in your watchlist\n"
+                    "• Priority real-time alert notifications"
+                )
+                await send_telegram(user_row["telegram_chat_id"], pro_msg)
+
+    elif event_name in ["subscription_cancelled", "subscription_expired"]:
+        q_cancel = format_query(
+            "UPDATE users SET is_pro = 0 WHERE lower(email) = ?"
+        )
+        cursor.execute(q_cancel, (customer_email,))
+        conn.commit()
+
+        q_user = format_query(
+            "SELECT telegram_chat_id FROM users WHERE lower(email) = ?"
+        )
+        cursor.execute(q_user, (customer_email,))
+        user_row = cursor.fetchone()
+
+        if user_row and user_row["telegram_chat_id"]:
+            cancel_msg = (
+                "ℹ️ <b>UK Company Radar | Subscription Cancelled</b>\n\n"
+                "Your Pro membership has ended. Your account is now on the Free tier."
+            )
+            await send_telegram(user_row["telegram_chat_id"], cancel_msg)
+
+    conn.close()
+    return {"status": "success"}
+
+
+# ---------------------------------------------------------
+# ANA SAYFA VE TAKİP ROTALARI
+# ---------------------------------------------------------
+@app.get("/", response_class=HTMLResponse)
+async def index(request: Request, q: Optional[str] = None):
+    user = get_current_user(request)
+    client_ip = request.client.host if request.client else "127.0.0.1"
+
+    is_pro = bool(user and user.get("is_pro"))
+    identifier = f"user_{user['id']}" if user else f"guest_{client_ip}"
+    search_count = get_search_count(identifier)
+
+    if is_pro:
+        search_limit = 999999
+        search_limit_reached = False
+        remaining_searches = "Unlimited"
+    elif user:
+        search_limit = 5
+        search_limit_reached = search_count >= search_limit
+        remaining_searches = max(0, search_limit - search_count)
+    else:
+        search_limit = 3
+        search_limit_reached = search_count >= search_limit
+        remaining_searches = max(0, search_limit - search_count)
+
+    search_results = []
+    if q and not search_limit_reached:
+        search_results = search_companies_house(q.strip())
+        increment_search_count(identifier)
+        if not is_pro:
+            search_count += 1
+            remaining_searches = max(0, search_limit - search_count)
+            if search_count >= search_limit:
+                search_limit_reached = True
+
+    watchlist = []
+    watchlist_limit_reached = False
+    if user:
+        conn = get_db()
+        cursor = conn.cursor()
+        query = format_query(
+            "SELECT * FROM watchlist WHERE user_id = ? ORDER BY created_at DESC"
+        )
+        cursor.execute(query, (user["id"],))
+        watchlist = cursor.fetchall()
+        conn.close()
+
+        if not is_pro and len(watchlist) >= 3:
+            watchlist_limit_reached = True
+
+    return templates.TemplateResponse(
+        request=request,
+        name="index.html",
+        context={
+            "user": user,
+            "query": q,
+            "results": search_results,
+            "watchlist": watchlist,
+            "search_count": search_count,
+            "search_limit": search_limit,
+            "search_limit_reached": search_limit_reached,
+            "remaining_searches": remaining_searches,
+            "watchlist_limit_reached": watchlist_limit_reached,
+            "is_pro": is_pro,
+        },
+    )
+
+
+@app.post("/track")
+async def track_company(
+    request: Request,
+    company_number: str = Form(...),
+    company_name: str = Form(...),
+    status: str = Form(...),
+    type: str = Form(None),
+    jurisdiction: str = Form(None),
+):
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+
+    company_number = normalize_company_number(company_number)
+    if not company_number or not re.fullmatch(r"[A-Z0-9]{6,10}", company_number):
+        return RedirectResponse(url="/?invalid_company=1", status_code=303)
+
+    conn = get_db()
+    cursor = conn.cursor()
+    q_check = format_query(
+        "SELECT id FROM watchlist WHERE user_id = ? AND company_number = ?"
+    )
+    cursor.execute(q_check, (user["id"], company_number))
+    existing = cursor.fetchone()
+    if existing:
+        conn.close()
+        return RedirectResponse(url="/?already_tracked=1", status_code=303)
+
+    q_count = format_query(
+        "SELECT COUNT(*) as count FROM watchlist WHERE user_id = ?"
+    )
+    cursor.execute(q_count, (user["id"],))
+    count = cursor.fetchone()["count"]
+
+    if not user.get("is_pro") and count >= 3:
+        conn.close()
+        return RedirectResponse(url="/?limit_reached=1", status_code=303)
+
+    q_insert = format_query("""
+        INSERT INTO watchlist (user_id, company_number, company_name, status, type, jurisdiction, last_filing_date, last_filing_description, last_filing_category)
+        VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL)
+    """)
+    cursor.execute(
+        q_insert,
+        (
+            user["id"],
+            company_number,
+            company_name.strip(),
+            status.strip(),
+            type,
+            jurisdiction,
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    if user.get("telegram_chat_id"):
+        welcome_alert = (
+            "🛡️ <b>UK Company Radar | Monitoring Active</b>\n\n<b>Company:</b>"
+            f" {company_name.strip()} ({company_number})\n<b>Current Legal"
+            f" Status:</b> {status.strip().upper()}\n\n✅ <i>24/7 automated"
+            " insolvency monitoring is now active. You will receive an instant"
+            " notification here if this entity enters liquidation, administration,"
+            " or strike-off.</i>"
+        )
+        await send_telegram(user["telegram_chat_id"], welcome_alert)
+
+    return RedirectResponse(url="/", status_code=303)
+
+
+@app.post("/untrack")
+async def untrack_company(request: Request, company_id: int = Form(...)):
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+
+    conn = get_db()
+    cursor = conn.cursor()
+    query = format_query("DELETE FROM watchlist WHERE id = ? AND user_id = ?")
+    cursor.execute(query, (company_id, user["id"]))
+    conn.commit()
+    conn.close()
+    return RedirectResponse(url="/", status_code=303)
+
+
+# ---------------------------------------------------------
+# AUTH ROTALARI (GİRİŞ, KAYIT & ŞİFRE SIFIRLAMA)
+# ---------------------------------------------------------
+@app.get("/auth", response_class=HTMLResponse)
+async def auth_page(request: Request, mode: Optional[str] = "login"):
+    user = get_current_user(request)
+    if user:
+        return RedirectResponse(url="/", status_code=303)
+    initial_tab = "register" if mode == "register" else "login"
+    return templates.TemplateResponse(
+        request=request, 
+        name="auth.html", 
+        context={"error": None, "message": None, "initial_tab": initial_tab}
+    )
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    user = get_current_user(request)
+    if user:
+        return RedirectResponse(url="/", status_code=303)
+    return templates.TemplateResponse(
+        request=request, 
+        name="auth.html", 
+        context={"error": None, "message": None, "initial_tab": "login"}
+    )
+
+
+@app.get("/register", response_class=HTMLResponse)
+async def register_page(request: Request):
+    user = get_current_user(request)
+    if user:
+        return RedirectResponse(url="/", status_code=303)
+    return templates.TemplateResponse(
+        request=request, 
+        name="auth.html", 
+        context={"error": None, "message": None, "initial_tab": "register"}
+    )
+
+
+@app.post("/auth/register")
+async def register(
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...),
+    telegram_chat_id: str = Form(None),
+):
+    email_clean = email.strip().lower()
+    chat_id_clean = telegram_chat_id.strip() if telegram_chat_id else None
+
+    if chat_id_clean and not is_valid_telegram_chat_id(chat_id_clean):
+        return templates.TemplateResponse(
+            request=request,
+            name="auth.html",
+            context={"error": "Telegram Chat ID must be a valid numeric ID.", "message": None, "initial_tab": "register"},
+        )
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    q_email = format_query("SELECT id FROM users WHERE lower(email) = ?")
+    cursor.execute(q_email, (email_clean,))
+    if cursor.fetchone():
+        conn.close()
+        return templates.TemplateResponse(
+            request=request,
+            name="auth.html",
+            context={"error": "This email is already registered.", "message": None, "initial_tab": "register"},
+        )
+
+    if chat_id_clean and (email_clean not in ADMIN_EMAILS):
+        q_tg = format_query("SELECT id FROM users WHERE telegram_chat_id = ?")
+        cursor.execute(q_tg, (chat_id_clean,))
+        existing_tg_user = cursor.fetchone()
+        if existing_tg_user:
+            conn.close()
+            return templates.TemplateResponse(
+                request=request,
+                name="auth.html",
+                context={
+                    "error": (
+                        "This Telegram Chat ID is already registered to another"
+                        " account."
+                    ),
+                    "message": None,
+                    "initial_tab": "register",
+                },
+            )
+
+    pwd_hash = hash_password(password)
+    is_pro_val = 1 if email_clean in ADMIN_EMAILS else 0
+
+    if USE_PG:
+        cursor.execute(
+            """
+                INSERT INTO users (email, password_hash, telegram_chat_id, is_pro) 
+                VALUES (%s, %s, %s, %s) RETURNING id
+            """,
+            (email_clean, pwd_hash, chat_id_clean, is_pro_val),
+        )
+        user_id = cursor.fetchone()["id"]
+    else:
+        cursor.execute(
+            """
+                INSERT INTO users (email, password_hash, telegram_chat_id, is_pro) 
+                VALUES (?, ?, ?, ?)
+            """,
+            (email_clean, pwd_hash, chat_id_clean, is_pro_val),
+        )
+        user_id = cursor.lastrowid
+
+    session_id = secrets.token_hex(24)
+    q_session = format_query(
+        "INSERT INTO sessions (session_id, user_id) VALUES (?, ?)"
+    )
+    cursor.execute(q_session, (session_id, user_id))
+    conn.commit()
+    conn.close()
+
+    if chat_id_clean:
+        reg_msg = (
+            "👋 <b>Welcome to UK Company Radar!</b>\n\nYour Telegram Chat ID has"
+            " been linked successfully.\nAutomated monitoring will dispatch alerts"
+            " directly here."
+        )
+        await send_telegram(chat_id_clean, reg_msg)
+
+    response = RedirectResponse(url="/", status_code=303)
+    response.set_cookie(
+        "session_id",
+        session_id,
+        max_age=30 * 86400,
+        httponly=True,
+        secure=not DEBUG_MODE,
+        samesite="lax",
+    )
+    return response
+
+
+@app.post("/auth/login")
+async def login(
+    request: Request, email: str = Form(...), password: str = Form(...)
+):
+    email_clean = email.strip().lower()
+    conn = get_db()
+    cursor = conn.cursor()
+    query = format_query("SELECT * FROM users WHERE lower(email) = ?")
+    cursor.execute(query, (email_clean,))
+    user = cursor.fetchone()
+
+    if not user or not verify_password(user["password_hash"], password):
+        conn.close()
+        return templates.TemplateResponse(
+            request=request,
+            name="auth.html",
+            context={"error": "Invalid email or password.", "message": None, "initial_tab": "login"},
+        )
+
+    session_id = secrets.token_hex(24)
+    q_session = format_query(
+        "INSERT INTO sessions (session_id, user_id) VALUES (?, ?)"
+    )
+    cursor.execute(q_session, (session_id, user["id"]))
+    conn.commit()
+    conn.close()
+
+    response = RedirectResponse(url="/", status_code=303)
+    response.set_cookie(
+        "session_id",
+        session_id,
+        max_age=30 * 86400,
+        httponly=True,
+        secure=not DEBUG_MODE,
+        samesite="lax",
+    )
+    return response
+
+
+@app.post("/auth/forgot-password")
+async def forgot_password(request: Request, email: str = Form(...)):
+    email_clean = email.strip().lower()
+    conn = get_db()
+    cursor = conn.cursor()
+    query = format_query("SELECT id FROM users WHERE lower(email) = ?")
+    cursor.execute(query, (email_clean,))
+    user = cursor.fetchone()
+
+    if user:
+        token = secrets.token_urlsafe(32)
+        expires_at = datetime.utcnow() + timedelta(hours=1)
+        
+        q_reset = format_query("""
+            INSERT INTO password_resets (token, user_id, expires_at)
+            VALUES (?, ?, ?)
+        """)
+        cursor.execute(q_reset, (token, user["id"], expires_at))
+        conn.commit()
+
+        reset_link = f"{APP_BASE_URL}/auth/reset-password?token={token}"
+        send_reset_email(email_clean, reset_link)
+
+    conn.close()
+    return templates.TemplateResponse(
+        request=request,
+        name="auth.html",
+        context={
+            "error": None,
+            "message": "If an account exists with this email, a password reset link has been dispatched.",
+            "initial_tab": "login",
+        },
+    )
+
+
+@app.get("/auth/reset-password", response_class=HTMLResponse)
+async def reset_password_page(request: Request, token: Optional[str] = None):
+    if not token:
+        return RedirectResponse(url="/login", status_code=303)
+
+    conn = get_db()
+    cursor = conn.cursor()
+    query = format_query("SELECT user_id, expires_at FROM password_resets WHERE token = ?")
+    cursor.execute(query, (token,))
+    record = cursor.fetchone()
+    conn.close()
+
+    if not record:
+        return templates.TemplateResponse(
+            request=request,
+            name="auth.html",
+            context={"error": "Invalid or expired reset token.", "message": None, "initial_tab": "login"},
+        )
+
+    expires_at = record["expires_at"]
+    if isinstance(expires_at, str):
+        expires_at = datetime.fromisoformat(expires_at)
+    
+    if datetime.utcnow() > expires_at:
+        return templates.TemplateResponse(
+            request=request,
+            name="auth.html",
+            context={"error": "This reset link has expired. Please request a new one.", "message": None, "initial_tab": "login"},
+        )
+
+    return templates.TemplateResponse(
+        request=request,
+        name="reset_password.html",
+        context={"token": token, "error": None},
+    )
+
+
+@app.post("/auth/reset-password")
+async def reset_password_submit(
+    request: Request,
+    token: str = Form(...),
+    password: str = Form(...),
+    confirm_password: str = Form(...),
+):
+    if password != confirm_password:
+        return templates.TemplateResponse(
+            request=request,
+            name="reset_password.html",
+            context={"token": token, "error": "Passwords do not match."},
+        )
+
+    if len(password) < 6:
+        return templates.TemplateResponse(
+            request=request,
+            name="reset_password.html",
+            context={"token": token, "error": "Password must be at least 6 characters."},
+        )
+
+    conn = get_db()
+    cursor = conn.cursor()
+    query = format_query("SELECT user_id, expires_at FROM password_resets WHERE token = ?")
+    cursor.execute(query, (token,))
+    record = cursor.fetchone()
+
+    if not record:
+        conn.close()
+        return templates.TemplateResponse(
+            request=request,
+            name="auth.html",
+            context={"error": "Invalid or expired reset token.", "message": None, "initial_tab": "login"},
+        )
+
+    user_id = record["user_id"]
+    new_pwd_hash = hash_password(password)
+
+    q_upd = format_query("UPDATE users SET password_hash = ? WHERE id = ?")
+    cursor.execute(q_upd, (new_pwd_hash, user_id))
+
+    q_del = format_query("DELETE FROM password_resets WHERE user_id = ?")
+    cursor.execute(q_del, (user_id,))
+
+    session_id = secrets.token_hex(24)
+    q_session = format_query(
+        "INSERT INTO sessions (session_id, user_id) VALUES (?, ?)"
+    )
+    cursor.execute(q_session, (session_id, user_id))
+    conn.commit()
+    conn.close()
+
+    response = RedirectResponse(url="/", status_code=303)
+    response.set_cookie(
+        "session_id",
+        session_id,
+        max_age=30 * 86400,
+        httponly=True,
+        secure=not DEBUG_MODE,
+        samesite="lax",
+    )
+    return response
+
+
+@app.get("/auth/logout")
+async def logout(request: Request):
+    session_id = request.cookies.get("session_id")
+    if session_id:
+        conn = get_db()
+        cursor = conn.cursor()
+        query = format_query("DELETE FROM sessions WHERE session_id = ?")
+        cursor.execute(query, (session_id,))
+        conn.commit()
+        conn.close()
+
+    response = RedirectResponse(url="/", status_code=303)
+    response.delete_cookie("session_id", path="/", samesite="lax")
+    return response
+
+
+# ---------------------------------------------------------
+# CASE STUDY, DETAY APISI & ADMIN ROTALARI
+# ---------------------------------------------------------
+@app.get("/insights/glens-of-antrim-administration", response_class=HTMLResponse)
+async def glens_case_study(request: Request):
+    user = get_current_user(request)
+    return templates.TemplateResponse(
+        request=request,
+        name="case_study_glens.html",
+        context={"user": user}
+    )
+
+
+@app.get("/api/company/{company_number}/details")
+async def company_details_api(request: Request, company_number: str):
+    user = get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    profile = get_company_profile(company_number)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Company profile not found")
+
+    officers = get_company_officers(company_number)
+    charges = get_company_charges(company_number)
+    
+    # The Gazette Resmi İflas İlanı Sorgulaması
+    gazette_notices = check_the_gazette_notices(company_number)
+
+    # Otomatik Risk Skoru & Neden Analizi (The Gazette Entegreli)
+    risk_analysis = calculate_company_risk_score(profile, charges, gazette_notices)
+
+    return {
+        "profile": profile,
+        "officers": officers[:12],
+        "charges": charges[:8],
+        "total_charges": len(charges),
+        "gazette_notices": gazette_notices,
+        "risk_analysis": risk_analysis,
+    }
+
+
+@app.get("/admin/users", response_class=HTMLResponse)
+async def admin_users_dashboard(request: Request):
+    user = get_current_user(request)
+    if not user or not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Forbidden: Admin access only.")
+
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT u.id, u.email, u.telegram_chat_id, u.is_pro, u.created_at,
+               COUNT(w.id) as tracked_count
+        FROM users u
+        LEFT JOIN watchlist w ON u.id = w.user_id
+        GROUP BY u.id, u.email, u.telegram_chat_id, u.is_pro, u.created_at
+        ORDER BY u.created_at DESC
+    """)
+    users_list = cursor.fetchall()
+    conn.close()
+
+    rows_html = ""
+    for u in users_list:
+        pro_badge = '<span style="background: #10b981; color: white; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: bold;">PRO</span>' if u["is_pro"] else '<span style="background: #94a3b8; color: white; padding: 2px 8px; border-radius: 9999px; font-size: 11px;">FREE</span>'
+        tg_info = u['telegram_chat_id'] if u['telegram_chat_id'] else '<span style="color: #94a3b8;">-</span>'
+        created = str(u['created_at'])[:16] if u['created_at'] else '-'
+        rows_html += f"""
+        <tr style="border-bottom: 1px solid #e2e8f0;">
+            <td style="padding: 12px 16px; font-size: 14px; font-family: monospace;">#{u['id']}</td>
+            <td style="padding: 12px 16px; font-size: 14px; font-weight: 500;">{u['email']}</td>
+            <td style="padding: 12px 16px; font-size: 14px;">{pro_badge}</td>
+            <td style="padding: 12px 16px; font-size: 14px;">{tg_info}</td>
+            <td style="padding: 12px 16px; font-size: 14px; font-weight: 600;">{u['tracked_count']}</td>
+            <td style="padding: 12px 16px; font-size: 13px; color: #64748b;">{created}</td>
+        </tr>
+        """
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Admin - User Monitoring | UK Company Radar</title>
+        <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <script src="https://cdn.tailwindcss.com"></script>
+    </head>
+    <body class="bg-slate-50 text-slate-800 p-6 md:p-10 font-sans">
+        <div class="max-w-5xl mx-auto">
+            <div class="flex items-center justify-between mb-8 pb-4 border-b border-slate-200">
                 <div>
-                    <span class="font-bold text-base text-slate-900 block leading-tight">UK Company Radar</span>
-                    <span class="text-[11px] text-slate-500 font-medium">Proactive Partner & Solvency Intelligence</span>
+                    <h1 class="text-2xl font-bold text-slate-900">Registered Users Monitoring</h1>
+                    <p class="text-sm text-slate-500 mt-1">Total registered accounts: <strong class="text-slate-800">{len(users_list)}</strong></p>
                 </div>
-            </a>
-
-            <div class="flex items-center gap-3">
-                {% if user %}
-                    <div class="hidden sm:flex items-center gap-2 mr-2">
-                        {% if user.is_admin %}
-                            <a href="/admin/users" class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200 transition">
-                                👑 ADMIN (USERS)
-                            </a>
-                        {% elif is_pro %}
-                            <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                                ⭐ PRO PLAN
-                            </span>
-                        {% else %}
-                            <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
-                                FREE TIER
-                            </span>
-                        {% endif %}
-                        <span class="text-xs text-slate-500 font-medium">{{ user.email }}</span>
-                    </div>
-
-                    <div class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold">
-                        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                        Radar Active
-                    </div>
-
-                    <a href="/auth/logout" class="text-xs font-semibold text-slate-600 hover:text-slate-900 px-3 py-2 rounded-lg hover:bg-slate-100 transition">
-                        Sign Out
-                    </a>
-                {% else %}
-                    <a href="/auth?mode=login" class="text-xs font-semibold text-slate-700 hover:text-slate-900 px-3 py-2">
-                        Sign In
-                    </a>
-                    <a href="/auth?mode=register" class="text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-xl shadow-sm transition">
-                        Create Free Account
-                    </a>
-                {% endif %}
-            </div>
-        </div>
-    </header>
-
-    <main class="max-w-6xl mx-auto px-4 py-8 flex-1 w-full space-y-8">
-
-        <!-- HERO BÖLÜMÜ -->
-        <section class="text-center max-w-3xl mx-auto pt-4 pb-2 space-y-3">
-            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-xs font-semibold tracking-wide">
-                <span>🛡️</span> Smart Cash Flow & Partner Solvency Monitoring
-            </div>
-            <h1 class="text-2xl sm:text-4xl font-extrabold text-slate-900 tracking-tight leading-tight">
-                Trade with Confidence. <br class="hidden sm:inline"> Protect Your Cash Flow.
-            </h1>
-            <p class="text-sm sm:text-base text-slate-600 leading-relaxed max-w-2xl mx-auto">
-                Keep a clear, continuous view of your key clients and suppliers. Receive timely, quiet updates whenever corporate filings, strike-off notices, or corporate statuses change.
-            </p>
-        </section>
-
-        <!-- KOTA VE PAYWALL BİLDİRİMLERİ -->
-        {% if search_limit_reached %}
-        <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 sm:p-5 text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-                <h4 class="font-bold text-sm text-amber-900">Daily Search Capacity Reached ({{ search_count }}/{{ search_limit }})</h4>
-                <p class="text-xs text-amber-800 mt-1">
-                    Your daily complimentary searches reset at midnight UTC. You can upgrade to Pro for unlimited on-demand entity lookups.
-                </p>
-            </div>
-            <a href="https://checkout.dodopayments.com/buy/pdt_0NpeP9HBH35DX4vKzdC6Y?quantity=1&redirect_url=https://uk-company-radar.onrender.com%2F%3Fpayment%3Dsuccess{% if user %}&customer_email={{ user.email }}{% endif %}" target="_blank" class="inline-flex justify-center items-center whitespace-nowrap bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-2.5 px-5 rounded-xl shadow-sm transition">
-                Unlock Unlimited Searches →
-            </a>
-        </div>
-        {% endif %}
-
-        {% if watchlist_limit_reached %}
-        <div class="bg-indigo-50 border border-indigo-200 rounded-2xl p-4 sm:p-5 text-indigo-950 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-                <h4 class="font-bold text-sm text-indigo-900">Complimentary Monitoring Limit Reached (3/3 Entities)</h4>
-                <p class="text-xs text-indigo-800 mt-1">
-                    Free tier keeps a watchful eye on up to 3 UK entities. Upgrade to Pro for unlimited portfolio monitoring and 24/7 background sync.
-                </p>
-            </div>
-            <a href="https://checkout.dodopayments.com/buy/pdt_0NpeP9HBH35DX4vKzdC6Y?quantity=1&redirect_url=https://uk-company-radar.onrender.com%2F%3Fpayment%3Dsuccess{% if user %}&customer_email={{ user.email }}{% endif %}" target="_blank" class="inline-flex justify-center items-center whitespace-nowrap bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-2.5 px-5 rounded-xl shadow-sm transition">
-                Upgrade to Pro (Unlimited) →
-            </a>
-        </div>
-        {% endif %}
-
-        <!-- ARAMA FORMU -->
-        <section class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
-                <h2 class="text-xs font-bold tracking-wider uppercase text-slate-500">LOOK UP ANY UK REGISTERED BUSINESS</h2>
-                <span class="inline-flex items-center text-xs px-2.5 py-1 rounded-full font-semibold {{ 'bg-amber-100 text-amber-800' if search_limit_reached else 'bg-slate-100 text-slate-700' }}">
-                    {% if is_pro %}
-                        Daily Free Searches: Unlimited
-                    {% else %}
-                        Daily Free Searches: {{ remaining_searches }}/{{ search_limit }}
-                    {% endif %}
-                </span>
+                <a href="/" class="text-sm font-medium text-blue-600 hover:text-blue-700 bg-white px-4 py-2 rounded-lg border border-slate-200 shadow-sm">&larr; Back to App</a>
             </div>
 
-            <form action="/" method="GET" class="flex flex-col sm:flex-row gap-3">
-                <input 
-                    type="text" 
-                    name="q" 
-                    value="{{ query or '' }}" 
-                    placeholder="Search by company name or registry number (e.g. Barclays, Dyson, Tesco)..." 
-                    required 
-                    class="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition"
-                >
-                <button type="submit" class="bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs py-2.5 px-6 rounded-xl shadow-sm transition flex items-center justify-center gap-2">
-                    <span>🔍</span> Check Standing
-                </button>
-            </form>
-
-            <!-- HIZLI ÖRNEK ARAMA BUTONLARI -->
-            <div class="mt-4 pt-3 border-t border-slate-100 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                <span class="font-medium text-slate-400">Quick checks:</span>
-                <a href="/?q=Barclays" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition">Barclays</a>
-                <a href="/?q=Dyson" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition">Dyson</a>
-                <a href="/?q=Tesco" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition">Tesco</a>
-                <a href="/?q=Glens+of+Antrim" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition">Glens of Antrim</a>
-            </div>
-        </section>
-
-        <!-- ARAMA SONUÇLARI -->
-        {% if results %}
-        <section class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
-            <h3 class="text-xs font-bold tracking-wider uppercase text-slate-500">UK CORPORATE REGISTRY RECORDS ({{ results|length }})</h3>
-            <div class="divide-y divide-slate-100">
-                {% for item in results %}
-                <div class="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div>
-                        <div class="flex items-center gap-2">
-                            {% if user %}
-                            <button type="button" onclick="openCompanyModal('{{ item.company_number }}')" class="font-bold text-sm text-slate-900 hover:text-blue-600 hover:underline text-left">
-                                {{ item.title }} 🔍
-                            </button>
-                            {% else %}
-                            <span class="font-bold text-sm text-slate-900">{{ item.title }}</span>
-                            {% endif %}
-                            <span class="text-xs font-mono text-slate-500">#{{ item.company_number }}</span>
-                        </div>
-                        <div class="flex flex-wrap items-center gap-2 mt-1.5 text-xs text-slate-500">
-                            <span class="px-2 py-0.5 rounded text-[11px] font-semibold {{ 'bg-emerald-50 text-emerald-700 border border-emerald-200' if item.company_status == 'active' else 'bg-rose-50 text-rose-700 border border-rose-200' }}">
-                                {{ (item.company_status or 'unknown')|upper }}
-                            </span>
-                            <span>• {{ item.company_type or 'Limited' }}</span>
-                            {% if item.address_snippet %}
-                                <span>• {{ item.address_snippet }}</span>
-                            {% endif %}
-                        </div>
-                    </div>
-
-                    <div>
-                        {% if user %}
-                            <form action="/track" method="POST">
-                                <input type="hidden" name="company_number" value="{{ item.company_number }}">
-                                <input type="hidden" name="company_name" value="{{ item.title }}">
-                                <input type="hidden" name="status" value="{{ item.company_status or 'active' }}">
-                                <input type="hidden" name="type" value="{{ item.company_type or '' }}">
-                                <input type="hidden" name="jurisdiction" value="{{ item.address_snippet or '' }}">
-                                <button type="submit" class="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold py-2 px-4 rounded-xl shadow-sm transition flex items-center justify-center gap-1.5">
-                                    <span>+</span> Add to Monitored List
-                                </button>
-                            </form>
-                        {% else %}
-                            <a href="/auth" class="w-full sm:w-auto inline-block text-center bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold py-2 px-4 rounded-xl transition">
-                                Sign In to Monitor
-                            </a>
-                        {% endif %}
-                    </div>
-                </div>
-                {% endfor %}
-            </div>
-        </section>
-        {% elif query %}
-        <div class="bg-white border border-slate-200 rounded-2xl p-8 text-center text-sm text-slate-500">
-            No corporate records found for "<b>{{ query }}</b>".
-        </div>
-        {% endif %}
-
-        <!-- TAKİP EDİLEN PORTFÖY LİSTESİ -->
-        {% if user %}
-        <section class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
-            <div class="flex items-center justify-between">
-                <div>
-                    <h3 class="text-xs font-bold tracking-wider uppercase text-slate-500">MONITORED BUSINESS PARTNERS</h3>
-                    <span class="text-xs text-slate-400">Continuous 24/7 Registry & Status Radar</span>
-                </div>
-                <span class="text-xs font-semibold text-slate-600">
-                    {% if is_pro %}
-                        Portfolio: {{ watchlist|length }} Entities (Unlimited Pro)
-                    {% else %}
-                        Portfolio: {{ watchlist|length }}/3 Max (Free)
-                    {% endif %}
-                </span>
-            </div>
-
-            {% if watchlist %}
-            <div class="overflow-x-auto">
-                <table class="w-full text-left text-xs border-collapse">
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <table class="w-full text-left border-collapse">
                     <thead>
-                        <tr class="border-b border-slate-200 text-slate-400 uppercase tracking-wider text-[11px]">
-                            <th class="py-3 font-semibold">Status</th>
-                            <th class="py-3 font-semibold">Company Name</th>
-                            <th class="py-3 font-semibold">Reg No</th>
-                            <th class="py-3 font-semibold">Jurisdiction / Type</th>
-                            <th class="py-3 font-semibold text-right">Actions</th>
+                        <tr class="bg-slate-100 text-xs uppercase tracking-wider text-slate-500 font-semibold border-bottom border-slate-200">
+                            <th class="py-3 px-4">ID</th>
+                            <th class="py-3 px-4">Email</th>
+                            <th class="py-3 px-4">Plan</th>
+                            <th class="py-3 px-4">Telegram ID</th>
+                            <th class="py-3 px-4">Tracked Co.</th>
+                            <th class="py-3 px-4">Joined Date</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-slate-100">
-                        {% for item in watchlist %}
-                        <tr>
-                            <td class="py-3.5">
-                                <span class="px-2 py-0.5 rounded text-[11px] font-bold {{ 'bg-emerald-50 text-emerald-700 border border-emerald-200' if item.status == 'active' else 'bg-rose-50 text-rose-700 border border-rose-200' }}">
-                                    {{ item.status|upper }}
-                                </span>
-                            </td>
-                            <td class="py-3.5">
-                                <button type="button" 
-                                        onclick="openCompanyModal('{{ item.company_number }}')" 
-                                        class="font-bold text-slate-900 hover:text-blue-600 hover:underline text-left focus:outline-none flex items-center gap-1.5">
-                                    <span>{{ item.company_name }}</span>
-                                    <span class="text-[10px] text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded font-normal">Details ↗</span>
-                                </button>
-                            </td>
-                            <td class="py-3.5 font-mono text-slate-500">{{ item.company_number }}</td>
-                            <td class="py-3.5 text-slate-500">{{ item.jurisdiction or item.type or 'UK Entity' }}</td>
-                            <td class="py-3.5 text-right">
-                                <form action="/untrack" method="POST" class="inline">
-                                    <input type="hidden" name="company_id" value="{{ item.id }}">
-                                    <button type="submit" class="text-rose-600 hover:text-rose-800 font-semibold text-xs">
-                                        Remove
-                                    </button>
-                                </form>
-                            </td>
-                        </tr>
-                        {% endfor %}
+                    <tbody>
+                        {rows_html}
                     </tbody>
                 </table>
             </div>
-            {% else %}
-            <div class="py-8 text-center text-xs text-slate-400">
-                You are not monitoring any entities yet. Search above and click <b>"Add to Monitored List"</b> to activate automated tracking.
-            </div>
-            {% endif %}
-        </section>
-        {% endif %}
-
-        <!-- TELEGRAM BİLDİRİM KARTI -->
-        {% if user %}
-        <div class="bg-slate-900 text-white p-5 rounded-2xl shadow-sm border border-slate-800 flex flex-col md:flex-row items-center justify-between gap-4">
-            <div class="flex items-center gap-3.5 text-left w-full md:w-auto">
-                <div class="w-10 h-10 rounded-xl bg-blue-500/20 border border-blue-400/30 flex items-center justify-center text-xl flex-shrink-0">
-                    📲
-                </div>
-                <div>
-                    <h3 class="text-xs font-bold uppercase tracking-wider text-blue-300">
-                        Optional: Discreet Mobile Status Alerts
-                    </h3>
-                    <p class="text-xs text-slate-300 mt-0.5">
-                        Connect our Telegram channel to receive instant, quiet alerts whenever an entity in your portfolio updates their official registry status.
-                    </p>
-                </div>
-            </div>
-            <a href="https://t.me/uk_company_radar_bot" target="_blank" class="w-full md:w-auto text-center whitespace-nowrap bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs py-2 px-5 rounded-xl transition">
-                Connect Telegram Bot →
-            </a>
         </div>
-        {% endif %}
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
 
-        <!-- FİYATLANDIRMA / PLAN SEÇİM TABLOSU (PRO KULLANICILARDA GİZLENİR) -->
-        {% if not is_pro %}
-        <section class="pt-4">
-            <div class="text-center max-w-xl mx-auto mb-8 space-y-2">
-                <h3 class="text-xs font-bold tracking-wider uppercase text-blue-600">TRANSPARENT PRICING</h3>
-                <h2 class="text-xl sm:text-2xl font-bold text-slate-900">Peace of Mind for Your Business Accounts</h2>
-                <p class="text-xs text-slate-500">Choose the monitoring capacity that fits your business scale. Cancel or change plans anytime.</p>
-            </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
-                <!-- FREE TIER -->
-                <div class="bg-white border border-slate-200 rounded-2xl p-6 flex flex-col justify-between shadow-sm">
-                    <div>
-                        <div class="flex items-center justify-between mb-2">
-                            <span class="text-sm font-bold text-slate-900">Free Tier</span>
-                            <span class="text-[11px] font-semibold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">Complimentary</span>
-                        </div>
-                        <div class="text-2xl font-extrabold text-slate-900 mb-4">$0 <span class="text-xs font-normal text-slate-500">/ forever</span></div>
-                        <ul class="text-xs text-slate-600 space-y-2.5 mb-6">
-                            <li class="flex items-center gap-2"><span>✓</span> 3 Daily Registry Searches</li>
-                            <li class="flex items-center gap-2"><span>✓</span> Track up to 3 UK entities</li>
-                            <li class="flex items-center gap-2"><span>✓</span> Instant Telegram status alerts</li>
-                            <li class="flex items-center gap-2 text-slate-400"><span>✕</span> Unlimited portfolio tracking</li>
-                        </ul>
-                    </div>
-                    {% if not user %}
-                        <a href="/auth" class="w-full text-center bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs py-2.5 rounded-xl transition">
-                            Get Started Free
-                        </a>
-                    {% else %}
-                        <div class="w-full text-center bg-slate-50 text-slate-400 font-semibold text-xs py-2.5 rounded-xl border border-slate-200">
-                            Current Base Tier
-                        </div>
-                    {% endif %}
-                </div>
+# ---------------------------------------------------------
+# SUPPORT DESK (MÜŞTERİ DESTEK TALEBİ) APISI
+# ---------------------------------------------------------
+@app.post("/api/support")
+async def support_ticket_api(request: Request):
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid request format")
 
-                <!-- PRO PLAN (DODO PAYMENTS ENTEGRELİ) -->
-                <div class="bg-white border-2 border-slate-900 rounded-2xl p-6 flex flex-col justify-between shadow-md relative">
-                    <span class="absolute -top-3 right-6 bg-slate-900 text-white text-[10px] font-extrabold px-3 py-0.5 rounded-full uppercase tracking-wider">
-                        Most Popular for B2B
-                    </span>
-                    <div>
-                        <div class="flex items-center justify-between mb-2">
-                            <span class="text-sm font-bold text-slate-900">Radar Pro</span>
-                            <span class="text-[11px] font-semibold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">Full Coverage</span>
-                        </div>
-                        <div class="flex items-baseline gap-2 mb-4">
-                            <span class="text-2xl font-extrabold text-slate-900">£9.90</span>
-                            <span class="text-xs text-slate-500">/ month</span>
-                        </div>
-                        <ul class="text-xs text-slate-700 space-y-2.5 mb-6 font-medium">
-                            <li class="flex items-center gap-2"><span>✓</span> <b>Unlimited</b> registry searches</li>
-                            <li class="flex items-center gap-2"><span>✓</span> <b>Unlimited</b> monitored entities</li>
-                            <li class="flex items-center gap-2"><span>✓</span> 24/7 continuous corporate registry sync</li>
-                            <li class="flex items-center gap-2"><span>✓</span> Instant priority push alerts</li>
-                        </ul>
-                    </div>
+    user_email = (data.get("email") or "").strip().lower()
+    subject = (data.get("subject") or "").strip()
+    message = (data.get("message") or "").strip()
 
-                    <div class="space-y-2.5 pt-2">
-                        <div class="p-2.5 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-start gap-2">
-                            <svg class="w-4 h-4 text-blue-600 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                            </svg>
-                            <span><strong>Important:</strong> Please ensure your checkout email matches your registered account email for instant activation.</span>
-                        </div>
+    if not user_email or not message:
+        raise HTTPException(status_code=400, detail="Email and message are required fields.")
 
-                        <a href="https://checkout.dodopayments.com/buy/pdt_0NpeP9HBH35DX4vKzdC6Y?quantity=1&redirect_url=https://uk-company-radar.onrender.com%2F%3Fpayment%3Dsuccess{% if user %}&customer_email={{ user.email }}{% endif %}" 
-                           target="_blank" 
-                           class="block w-full py-3 px-4 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl text-center shadow-md transition-all text-xs">
-                            Upgrade to Monthly Pro (£9.90/mo) →
-                        </a>
-                        <a href="https://checkout.dodopayments.com/buy/pdt_0NpePTmT2ndnjwe2mU0uY?quantity=1&redirect_url=https://uk-company-radar.onrender.com%2F%3Fpayment%3Dsuccess{% if user %}&customer_email={{ user.email }}{% endif %}" 
-                           target="_blank" 
-                           class="block w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-xl text-center text-xs transition-all border border-slate-200">
-                            Or Save with Annual (£99/yr - 2 Mo Free)
-                        </a>
-                    </div>
-                </div>
-            </div>
-        </section>
-        {% endif %}
+    admin_telegram_chat_id = os.getenv("MY_TELEGRAM_ID", "-4367179502").strip()
 
-        <!-- SİSTEM GÜVEN VE DEĞER AÇIKLAMALARI -->
-        <section class="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">
-            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-                <div class="text-2xl mb-2">⚡</div>
-                <h4 class="font-bold text-sm text-slate-900 mb-1">Live Registry Sync</h4>
-                <p class="text-xs text-slate-500 leading-relaxed">
-                    Synchronized with public UK corporate registries. Accurate business intelligence to monitor risk and status changes.
-                </p>
-            </div>
-            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-                <div class="text-2xl mb-2">🛡️</div>
-                <h4 class="font-bold text-sm text-slate-900 mb-1">Proactive Partner Health</h4>
-                <p class="text-xs text-slate-500 leading-relaxed">
-                    Know well in advance when a key client or critical supplier shows administrative changes or restructuring filings.
-                </p>
-            </div>
-            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-                <div class="text-2xl mb-2">📲</div>
-                <h4 class="font-bold text-sm text-slate-900 mb-1">Zero-Noise Updates</h4>
-                <p class="text-xs text-slate-500 leading-relaxed">
-                    No spam or bloated dashboards. Only receive notifications when an official status change impacts your monitored list.
-                </p>
-            </div>
-        </section>
+    telegram_support_msg = (
+        "🛠️ <b>NEW SUPPORT DESK TICKET</b>\n\n"
+        f"<b>From:</b> {user_email}\n"
+        f"<b>Subject:</b> {subject or 'No Subject'}\n\n"
+        f"<b>Message:</b>\n{message}\n\n"
+        f"<i>Received at: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC</i>"
+    )
 
-        <!-- MOBİL ERİŞİM / PWA KURULUM BÖLÜMÜ -->
-        <section id="pwa-install-card" class="bg-slate-900 text-white rounded-2xl p-6 sm:p-8 shadow-sm border border-slate-800 text-center space-y-4">
-            <div class="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-blue-500/20 text-blue-400 text-2xl border border-blue-400/30">
-                📲
-            </div>
-            <div class="max-w-xl mx-auto space-y-2">
-                <h3 class="text-lg sm:text-xl font-bold tracking-tight text-white">
-                    Track Companies On The Go
-                </h3>
-                <p class="text-xs sm:text-sm text-slate-300 leading-relaxed">
-                    Add UK Company Radar to your phone's home screen for quick 1-tap access. Runs full-screen directly in your browser with zero App Store downloads or updates.
-                </p>
-            </div>
+    try:
+        await send_telegram(admin_telegram_chat_id, telegram_support_msg)
+        print(f"[Support Desk Ticket]: Delivered to Telegram ({admin_telegram_chat_id}).")
+        return {"success": True, "message": "Ticket successfully received."}
+    except Exception as e:
+        print(f"[Support Ticket Error]: {e}")
+        return {"success": True, "message": "Ticket successfully received."}
 
-            <div>
-                <button id="pwa-install-btn" type="button" class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs sm:text-sm py-2.5 px-6 rounded-xl shadow-md transition-all">
-                    <span>⚡</span> <span>Add to Home Screen</span>
-                </button>
-            </div>
 
-            <div id="ios-instruction" class="hidden mt-3 max-w-md mx-auto text-xs text-slate-300 bg-slate-800/80 border border-slate-700 rounded-xl p-3">
-                Tap the <strong class="text-white">Share</strong> button <span class="text-sm">⎋</span> in Safari, then scroll down and tap <strong class="text-white">'Add to Home Screen'</strong> ➕.
-            </div>
-        </section>
+# ---------------------------------------------------------
+# PWA (PROGRESSIVE WEB APP) ENDPOINT'LERİ
+# ---------------------------------------------------------
+@app.get("/manifest.json")
+async def get_manifest():
+    return FileResponse(static_dir / "manifest.json", media_type="application/manifest+json")
 
-    </main>
 
-    <!-- FOOTER & ZORUNLU YASAL FERAGATNAME -->
-    <footer class="border-t border-slate-200 bg-white py-6 mt-12 text-xs text-slate-500">
-        <div class="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div>
-                <div>© 2026 UK Company Radar. Smart Partner Intelligence.</div>
-                <p class="text-[11px] text-slate-400 mt-1">
-                    UK Company Radar is an independent business intelligence tool and is not affiliated with, endorsed by, or part of Companies House or the UK Government.
-                </p>
-            </div>
-            <div class="flex items-center gap-4 flex-shrink-0">
-                <a href="https://t.me/uk_company_radar_bot" target="_blank" class="hover:text-slate-700 transition flex items-center gap-1 font-medium">
-                    <span>🤖</span> Telegram Bot
-                </a>
-                <span class="text-slate-300">•</span>
-                <button type="button" onclick="openSupportModal()" class="hover:text-slate-700 font-semibold text-slate-600 transition flex items-center gap-1">
-                    <span>🛠️</span> Support Desk
-                </button>
-            </div>
-        </div>
-    </footer>
-
-    <!-- DİNAMİK ŞİRKET İSTİHBARAT & RİSK DOSYASI MODAL'I -->
-    <div id="companyModal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl overflow-hidden my-8 transform transition-all">
-            
-            <!-- Modal Başlık & Kapatma -->
-            <div class="bg-slate-900 text-white p-6 flex justify-between items-start">
-                <div>
-                    <div class="flex items-center space-x-3">
-                        <span id="modalStatusBadge" class="text-xs font-bold px-2.5 py-1 rounded uppercase tracking-wider bg-emerald-500 text-white">ACTIVE</span>
-                        <span id="modalCompanyNum" class="text-xs text-slate-400 font-mono">00000000</span>
-                    </div>
-                    <h3 id="modalCompanyName" class="text-xl font-bold text-white mt-2">Loading Company...</h3>
-                    <p id="modalAddress" class="text-xs text-slate-300 mt-1">...</p>
-                </div>
-                <button onclick="closeCompanyModal()" class="text-slate-400 hover:text-white text-2xl font-bold leading-none p-1 focus:outline-none">&times;</button>
-            </div>
-
-            <!-- Yükleniyor Göstergesi -->
-            <div id="modalLoading" class="p-12 text-center">
-                <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-600 border-t-transparent"></div>
-                <p class="text-sm text-slate-500 mt-3 font-medium">Fetching corporate registry, officers, floating charges & risk evaluation...</p>
-            </div>
-
-            <!-- Detay İçeriği -->
-            <div id="modalContent" class="hidden p-6 space-y-6 max-h-[75vh] overflow-y-auto text-sm">
-                
-                <!-- DİNAMİK RİSK & SOLVENCY ANALİZ KARTI -->
-                <div class="bg-slate-900 text-white p-5 rounded-2xl shadow-sm border border-slate-800 space-y-4">
-                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
-                        <div>
-                            <div class="text-[11px] font-bold uppercase tracking-wider text-blue-400">Automated Solvency & Counterparty Risk</div>
-                            <div class="text-xs font-semibold text-slate-200 mt-0.5">Registry & Statutory Filing Health Score</div>
-                            <p class="text-[11px] text-slate-400 mt-0.5 leading-snug">
-                                Evaluated against statutory deadlines, public encumbrances (mortgages/charges), and active registrar standing.
-                            </p>
-                        </div>
-                        <div class="flex items-center gap-3 flex-shrink-0">
-                            <div class="text-right">
-                                <span id="modalRiskScoreText" class="text-2xl font-black text-white">--/100</span>
-                                <span class="block text-[10px] uppercase font-bold text-slate-400">Calculated Score</span>
-                            </div>
-                            <span id="modalRiskBadge" class="px-3 py-1.5 rounded-xl text-xs font-extrabold uppercase tracking-wide bg-slate-700 text-white">
-                                ANALYZING...
-                            </span>
-                        </div>
-                    </div>
-
-                    <!-- "Neye Göre?" Gerekçelendirme Listesi -->
-                    <div>
-                        <div class="text-xs font-semibold text-slate-300 mb-2 flex items-center gap-1.5">
-                            <span>🔍</span> Evaluation Audit Factors (Why this score?):
-                        </div>
-                        <ul id="modalRiskFactors" class="space-y-1.5 text-xs text-slate-300">
-                            <!-- Dinamik olarak JS tarafından doldurulacak -->
-                        </ul>
-                    </div>
-                </div>
-
-                <!-- 1. Temel Sicil ve Teslim Tarihleri -->
-                <div>
-                    <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">1. Registry & Filing Deadlines</h4>
-                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-100">
-                        <div>
-                            <span class="block text-xs text-slate-500">Incorporation</span>
-                            <span id="modalIncDate" class="font-semibold text-slate-800">-</span>
-                        </div>
-                        <div>
-                            <span class="block text-xs text-slate-500">Company Type</span>
-                            <span id="modalType" class="font-semibold text-slate-800 capitalize">-</span>
-                        </div>
-                        <div>
-                            <span class="block text-xs text-slate-500">Next Accounts Due</span>
-                            <span id="modalAccountsDue" class="font-semibold text-slate-800">-</span>
-                        </div>
-                        <div>
-                            <span class="block text-xs text-slate-500">Confirmation Due</span>
-                            <span id="modalConfDue" class="font-semibold text-slate-800">-</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- SIC Kodları -->
-                <div>
-                    <span class="block text-xs text-slate-500 mb-1.5 font-medium">Standard Industrial Classification (SIC)</span>
-                    <div id="modalSicCodes" class="flex flex-wrap gap-1.5 text-xs">
-                        <!-- Dinamik SIC Rozetleri -->
-                    </div>
-                </div>
-
-                <!-- 2. İpotek & Rehin Kayıtları (Charges / Mortgages) -->
-                <div>
-                    <div class="flex items-center justify-between mb-2">
-                        <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400">2. Mortgages & Floating Charges (Secured Debt)</h4>
-                        <span id="modalChargesCount" class="text-xs px-2.5 py-0.5 rounded font-bold bg-amber-100 text-amber-800">0 Charges</span>
-                    </div>
-                    <div id="modalChargesList" class="space-y-2">
-                        <!-- Dinamik Rehin Listesi -->
-                    </div>
-                </div>
-
-                <!-- 3. Yönetim & Direktörler (Officers) -->
-                <div>
-                    <div class="flex items-center justify-between mb-2">
-                        <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400">3. Active Directors & Leadership</h4>
-                        <span id="modalDirectorsCount" class="text-[11px] font-semibold text-slate-500"></span>
-                    </div>
-                    
-                    <!-- Sadece Direktör Kartları -->
-                    <div id="modalOfficersList" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                        <!-- JS ile dolacak -->
-                    </div>
-
-                    <!-- Kompakt Sekreterler Alanı -->
-                    <div id="modalSecretariesWrapper" class="mt-3 pt-3 border-t border-slate-100 hidden">
-                        <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Company Secretarial:</span>
-                        <div id="modalSecretariesList" class="text-xs text-slate-600 flex flex-wrap gap-2">
-                            <!-- JS ile dolacak -->
-                        </div>
-                    </div>
-                </div>
-
-            </div>
-
-            <!-- Modal Alt Kısım -->
-            <div class="bg-slate-50 px-6 py-4 border-t border-slate-100 flex justify-between items-center text-xs text-slate-500">
-                <span>Public corporate intelligence record</span>
-                <button onclick="closeCompanyModal()" class="px-4 py-2 bg-slate-900 text-white rounded-lg font-medium hover:bg-slate-800 transition">Close</button>
-            </div>
-
-        </div>
-    </div>
-
-    <!-- MODERN DESTEK MASASI MODAL'I -->
-    <div id="supportModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 relative">
-            <button type="button" onclick="closeSupportModal()" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-lg font-bold">
-                ✕
-            </button>
-            
-            <div class="flex items-center gap-2 mb-2">
-                <div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center text-sm font-bold">
-                    🛠️
-                </div>
-                <h3 class="font-bold text-slate-900 text-base">Contact Support Desk</h3>
-            </div>
-            
-            <p class="text-xs text-slate-500 mb-4 leading-relaxed">
-                Need help with your portfolio alerts, registry data, or subscription? Drop us a message and our team will get back to you shortly.
-            </p>
-
-            <form id="supportForm" onsubmit="submitSupportTicket(event)" class="space-y-3.5">
-                <div id="supportAlert" class="hidden p-3 rounded-xl text-xs font-medium"></div>
-
-                <div>
-                    <label for="supportEmail" class="block text-xs font-semibold text-slate-700 mb-1">Your Email Address *</label>
-                    <input 
-                        type="email" 
-                        id="supportEmail" 
-                        required 
-                        value="{{ user.email if user else '' }}"
-                        placeholder="you@company.com" 
-                        class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:bg-white transition"
-                    >
-                </div>
-
-                <div>
-                    <label for="supportSubject" class="block text-xs font-semibold text-slate-700 mb-1">Subject *</label>
-                    <input 
-                        type="text" 
-                        id="supportSubject" 
-                        required 
-                        placeholder="e.g. Alert issue, Portfolio limit, Billing inquiry" 
-                        class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:bg-white transition"
-                    >
-                </div>
-
-                <div>
-                    <label for="supportMessage" class="block text-xs font-semibold text-slate-700 mb-1">Message Details *</label>
-                    <textarea 
-                        id="supportMessage" 
-                        rows="4" 
-                        required 
-                        placeholder="Describe your issue or feedback in detail..." 
-                        class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:bg-white transition resize-none"
-                    ></textarea>
-                </div>
-
-                <div class="flex items-center justify-end gap-2 pt-2">
-                    <button type="button" onclick="closeSupportModal()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition">
-                        Cancel
-                    </button>
-                    <button type="submit" id="supportSubmitBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs py-2 px-5 rounded-xl shadow-sm transition">
-                        Send Ticket
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <!-- JAVASCRIPT KODLARI -->
-    <script>
-    /* PWA & SERVICE WORKER ENTEGRASYONU */
-    if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-            navigator.serviceWorker.register('/sw.js').catch((err) => {
-                console.log('SW registration note:', err);
-            });
-        });
-    }
-
-    let deferredPrompt;
-    const installBtn = document.getElementById('pwa-install-btn');
-    const iosNotice = document.getElementById('ios-instruction');
-    const pwaCard = document.getElementById('pwa-install-card');
-
-    const isIos = () => /iphone|ipad|ipod/.test(window.navigator.userAgent.toLowerCase());
-    const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
-
-    if (isStandalone() && pwaCard) {
-        pwaCard.classList.add('hidden');
-    }
-
-    window.addEventListener('beforeinstallprompt', (e) => {
-        e.preventDefault();
-        deferredPrompt = e;
-        if (installBtn) {
-            installBtn.classList.remove('hidden');
-        }
-    });
-
-    if (installBtn) {
-        if (isIos() && !isStandalone()) {
-            installBtn.innerHTML = `<span>📱</span> <span>Add to iPhone Home Screen</span>`;
-        }
-
-        installBtn.addEventListener('click', async () => {
-            if (deferredPrompt) {
-                deferredPrompt.prompt();
-                const { outcome } = await deferredPrompt.userChoice;
-                if (outcome === 'accepted') {
-                    installBtn.innerHTML = `<span>✓</span> <span>Added to Home Screen</span>`;
-                    installBtn.className = "inline-flex items-center gap-2 bg-emerald-600 text-white font-semibold text-xs sm:text-sm py-2.5 px-6 rounded-xl shadow-md";
-                }
-                deferredPrompt = null;
-            } else if (isIos()) {
-                if (iosNotice) {
-                    iosNotice.classList.toggle('hidden');
-                }
-            } else {
-                alert("To add UK Company Radar to your device, use your browser's menu (⋮ or Share) and choose 'Add to Home screen' or 'Install App'.");
-            }
-        });
-    }
-
-    /* ŞİRKET DETAY MODAL'I & RİSK DEĞERLEMESİ */
-    async function openCompanyModal(companyNumber) {
-        const modal = document.getElementById('companyModal');
-        const loading = document.getElementById('modalLoading');
-        const content = document.getElementById('modalContent');
-        
-        modal.classList.remove('hidden');
-        loading.classList.remove('hidden');
-        content.classList.add('hidden');
-        
-        document.getElementById('modalCompanyName').innerText = "Loading Company Dossier...";
-        document.getElementById('modalCompanyNum').innerText = companyNumber;
-        
-        try {
-            const res = await fetch(`/api/company/${companyNumber}/details`);
-            if (!res.ok) throw new Error("Could not fetch details");
-            const data = await minifiedData(res);
-            
-            const p = data.profile;
-            document.getElementById('modalCompanyName').innerText = p.company_name || 'Unknown Name';
-            document.getElementById('modalCompanyNum').innerText = p.company_number || companyNumber;
-            
-            // Adres
-            const addr = p.registered_office_address || {};
-            const fullAddr = [addr.address_line_1, addr.locality, addr.postal_code, addr.country].filter(Boolean).join(', ');
-            document.getElementById('modalAddress').innerText = fullAddr || 'No registered office address listed';
-            
-            // Durum Rozeti
-            const badge = document.getElementById('modalStatusBadge');
-            const st = (p.company_status || 'active').toUpperCase();
-            badge.innerText = st;
-            if (st === 'ACTIVE') {
-                badge.className = "text-xs font-bold px-2.5 py-1 rounded uppercase tracking-wider bg-emerald-500 text-white";
-            } else {
-                badge.className = "text-xs font-bold px-2.5 py-1 rounded uppercase tracking-wider bg-rose-600 text-white";
-            }
-
-            // Otomatik Risk & Gerekçe Hesaplaması Doldurma
-            const risk = data.risk_analysis || {};
-            const scoreText = document.getElementById('modalRiskScoreText');
-            const riskBadge = document.getElementById('modalRiskBadge');
-            const factorsList = document.getElementById('modalRiskFactors');
-
-            if (scoreText) scoreText.innerText = `${risk.score || 0}/100`;
-
-            if (riskBadge) {
-                riskBadge.innerText = risk.level || 'UNKNOWN';
-                if (risk.badge_color === 'emerald') {
-                    riskBadge.className = "px-3 py-1.5 rounded-xl text-xs font-extrabold uppercase tracking-wide bg-emerald-500 text-slate-950";
-                } else if (risk.badge_color === 'amber') {
-                    riskBadge.className = "px-3 py-1.5 rounded-xl text-xs font-extrabold uppercase tracking-wide bg-amber-400 text-slate-950";
-                } else {
-                    riskBadge.className = "px-3 py-1.5 rounded-xl text-xs font-extrabold uppercase tracking-wide bg-rose-600 text-white";
-                }
-            }
-
-            if (factorsList) {
-                factorsList.innerHTML = '';
-                (risk.factors || []).forEach(f => {
-                    let icon = '•';
-                    let colorClass = 'text-slate-300';
-                    if (f.type === 'positive') {
-                        icon = '✓';
-                        colorClass = 'text-emerald-400';
-                    } else if (f.type === 'warning') {
-                        icon = '⚠️';
-                        colorClass = 'text-amber-300';
-                    } else if (f.type === 'danger') {
-                        icon = '🚨';
-                        colorClass = 'text-rose-400 font-semibold';
-                    }
-                    factorsList.innerHTML += `
-                        <li class="flex items-start gap-2 ${colorClass}">
-                            <span class="mt-0.5 select-none">${icon}</span>
-                            <span>${f.text}</span>
-                        </li>
-                    `;
-                });
-            }
-            
-            // Tarihler & Tür
-            document.getElementById('modalIncDate').innerText = p.date_of_creation || '-';
-            document.getElementById('modalType').innerText = (p.type || '-').replace(/-/g, ' ');
-            document.getElementById('modalAccountsDue').innerText = p.accounts?.next_due || p.accounts?.next_accounts?.due_on || 'N/A';
-            document.getElementById('modalConfDue').innerText = p.confirmation_statement?.next_due || 'N/A';
-            
-            // SIC Kodları
-            const sicContainer = document.getElementById('modalSicCodes');
-            sicContainer.innerHTML = '';
-            if (p.sic_codes && p.sic_codes.length > 0) {
-                p.sic_codes.forEach(code => {
-                    sicContainer.innerHTML += `<span class="bg-slate-100 text-slate-700 border border-slate-200 px-2 py-0.5 rounded font-mono font-medium">SIC: ${code}</span>`;
-                });
-            } else {
-                sicContainer.innerHTML = '<span class="text-slate-400 italic">No SIC industry codes specified</span>';
-            }
-            
-            // Rehinler / Charges (Banka Borçları)
-            const chargesContainer = document.getElementById('modalChargesList');
-            const chargesCount = document.getElementById('modalChargesCount');
-            chargesContainer.innerHTML = '';
-            chargesCount.innerText = `${data.total_charges} Registered Charge(s)`;
-            
-            if (data.charges && data.charges.length > 0) {
-                data.charges.forEach(ch => {
-                    const chargeStatus = ch.status === 'outstanding' 
-                        ? '<span class="text-rose-600 font-bold bg-rose-50 px-2 py-0.5 rounded border border-rose-200">OUTSTANDING</span>' 
-                        : '<span class="text-slate-500 font-medium bg-slate-100 px-2 py-0.5 rounded">SATISFIED</span>';
-                    
-                    chargesContainer.innerHTML += `
-                        <div class="p-3 bg-slate-50 rounded-xl border border-slate-200">
-                            <div class="flex justify-between items-center text-xs">
-                                <span class="font-mono text-slate-500">Created: ${ch.created_on || 'N/A'}</span>
-                                <div>${chargeStatus}</div>
-                            </div>
-                            <div class="font-semibold text-slate-800 text-xs mt-1.5">${ch.persons_entitled?.[0]?.name || 'Secured Creditor / Institutional Bank'}</div>
-                            <div class="text-[11px] text-slate-500 mt-0.5 line-clamp-2">${ch.particulars?.description || 'Registered floating/fixed mortgage on company assets.'}</div>
-                        </div>
-                    `;
-                });
-            } else {
-                chargesContainer.innerHTML = '<div class="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs text-slate-500 italic">No registered mortgages or floating charges found. Clean legal profile.</div>';
-            }
-            
-            // Direktörler ve Sekreterleri Ayrıştırma Mantığı
-            const officersContainer = document.getElementById('modalOfficersList');
-            const directorsCount = document.getElementById('modalDirectorsCount');
-            const secWrapper = document.getElementById('modalSecretariesWrapper');
-            const secContainer = document.getElementById('modalSecretariesList');
-            
-            officersContainer.innerHTML = '';
-            secContainer.innerHTML = '';
-            
-            const rawOfficers = data.officers || [];
-            
-            const directors = rawOfficers.filter(o => {
-                const role = (o.officer_role || '').toLowerCase();
-                return role.includes('director') || role.includes('llp-designated-member') || role.includes('member');
-            });
-
-            const secretaries = rawOfficers.filter(o => {
-                const role = (o.officer_role || '').toLowerCase();
-                return role.includes('secretary');
-            });
-
-            // 1. Direktörleri Kart Olarak Ekle
-            if (directors.length > 0) {
-                if (directorsCount) directorsCount.innerText = `${directors.length} Active Director(s)`;
-                directors.forEach(off => {
-                    officersContainer.innerHTML += `
-                        <div class="p-3 bg-slate-50 rounded-xl border border-slate-200 flex flex-col justify-between">
-                            <div>
-                                <span class="text-[10px] uppercase font-bold text-blue-600 block tracking-wider">${off.officer_role || 'Director'}</span>
-                                <span class="font-semibold text-slate-800 text-xs block mt-0.5">${off.name}</span>
-                            </div>
-                            <div class="text-[11px] text-slate-500 mt-2 flex justify-between">
-                                <span>Appointed: ${off.appointed_on || '-'}</span>
-                                <span class="capitalize text-slate-600">${off.nationality || ''}</span>
-                            </div>
-                        </div>
-                    `;
-                });
-            } else {
-                if (directorsCount) directorsCount.innerText = '0 Listed';
-                officersContainer.innerHTML = '<div class="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs text-slate-500 italic col-span-2">No active director records listed.</div>';
-            }
-
-            // 2. Sekreterleri Tek Satırlık Kompakt Rozet/Liste Olarak Ekle
-            if (secretaries.length > 0) {
-                secWrapper.classList.remove('hidden');
-                secretaries.forEach(sec => {
-                    secContainer.innerHTML += `
-                        <span class="inline-flex items-center gap-1 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-lg text-[11px] text-slate-700">
-                            <span class="text-slate-400">🖋️</span> ${sec.name}
-                        </span>
-                    `;
-                });
-            } else {
-                secWrapper.classList.add('hidden');
-            }
-
-            loading.classList.add('hidden');
-            content.classList.remove('hidden');
-            
-        } catch (err) {
-            loading.innerHTML = `<p class="text-sm text-rose-600 font-medium">Failed to retrieve intelligence from registry: ${err.message}</p>`;
-        }
-    }
-
-    async function minifiedData(res) {
-        return await res.json();
-    }
-
-    function closeCompanyModal() {
-        document.getElementById('companyModal').classList.add('hidden');
-    }
-
-    /* DESTEK MASASI (SUPPORT MODAL) */
-    function openSupportModal() {
-        const modal = document.getElementById('supportModal');
-        modal.classList.remove('hidden');
-        const alertBox = document.getElementById('supportAlert');
-        alertBox.classList.add('hidden');
-    }
-
-    function closeSupportModal() {
-        document.getElementById('supportModal').classList.add('hidden');
-    }
-
-    async function submitSupportTicket(event) {
-        if (event) {
-            event.preventDefault();
-            event.stopPropagation();
-        }
-        
-        const submitBtn = document.getElementById('supportSubmitBtn');
-        const alertBox = document.getElementById('supportAlert');
-        const email = document.getElementById('supportEmail').value.trim();
-        const subject = document.getElementById('supportSubject').value.trim();
-        const message = document.getElementById('supportMessage').value.trim();
-
-        if (!email || !message) {
-            alertBox.className = "p-3 rounded-xl text-xs font-medium bg-amber-50 text-amber-800 border border-amber-200 block";
-            alertBox.innerText = 'Please provide both email and message details.';
-            return;
-        }
-
-        submitBtn.disabled = true;
-        submitBtn.innerText = 'Sending...';
-        alertBox.classList.add('hidden');
-
-        try {
-            const response = await fetch('/api/support', {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                },
-                body: JSON.stringify({ email, subject, message })
-            });
-
-            let data = {};
-            try {
-                data = await response.json();
-            } catch(e) {
-                data = {};
-            }
-
-            if (response.ok && data.success) {
-                alertBox.className = "p-3 rounded-xl text-xs font-medium bg-emerald-50 text-emerald-800 border border-emerald-200 block";
-                alertBox.innerText = 'Your message has been sent successfully. Our team will get back to you shortly.';
-                document.getElementById('supportMessage').value = '';
-                document.getElementById('supportSubject').value = '';
-                
-                setTimeout(() => {
-                    closeSupportModal();
-                }, 2200);
-            } else {
-                alertBox.className = "p-3 rounded-xl text-xs font-medium bg-rose-50 text-rose-800 border border-rose-200 block";
-                alertBox.innerText = data.detail || data.error || ('Server error: HTTP ' + response.status);
-            }
-        } catch (err) {
-            console.error("Support ticket send error:", err);
-            alertBox.className = "p-3 rounded-xl text-xs font-medium bg-rose-50 text-rose-800 border border-rose-200 block";
-            alertBox.innerText = 'Browser connection error: ' + (err.message || 'Request failed');
-        } finally {
-            submitBtn.disabled = false;
-            submitBtn.innerText = 'Send Ticket';
-        }
-    }
-
-    // Modal dışına veya ESC tuşuna basıldığında kapatma kontrolleri
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-            closeCompanyModal();
-            closeSupportModal();
-        }
-    });
-
-    document.getElementById('companyModal').addEventListener('click', (e) => {
-        if (e.target.id === 'companyModal') closeCompanyModal();
-    });
-
-    document.getElementById('supportModal').addEventListener('click', (e) => {
-        if (e.target.id === 'supportModal') closeSupportModal();
-    });
-    </script>
-
-    <!-- Cloudflare Web Analytics -->
-    <script type='module' src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "9ffb911737054635a5e93e0aabec2e25"}'></script>
-    <!-- End Cloudflare Web Analytics -->
-</body>
-</html>
+@app.get("/sw.js")
+async def get_sw():
+    return FileResponse(static_dir / "sw.js", media_type="application/javascript")
