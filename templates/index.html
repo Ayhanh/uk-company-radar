@@ -89,7 +89,7 @@
                 Trade with Confidence. <br class="hidden sm:inline"> Protect Your Cash Flow.
             </h1>
             <p class="text-sm sm:text-base text-slate-600 leading-relaxed max-w-2xl mx-auto">
-                Keep a clear, continuous view of your key clients and suppliers. Receive timely, quiet updates whenever Companies House filings, strike-off notices, or corporate statuses change.
+                Keep a clear, continuous view of your key clients and suppliers. Receive timely, quiet updates whenever corporate filings, strike-off notices, or insolvency statuses change.
             </p>
         </section>
 
@@ -212,7 +212,7 @@
         </section>
         {% elif query %}
         <div class="bg-white border border-slate-200 rounded-2xl p-8 text-center text-sm text-slate-500">
-            No official Companies House records found for "<b>{{ query }}</b>".
+            No public records found for "<b>{{ query }}</b>".
         </div>
         {% endif %}
 
@@ -306,6 +306,535 @@
         </div>
         {% endif %}
 
+        <!-- FİYATLANDIRMA / PLAN SEÇİM TABLOSU -->
+        {% if not is_pro %}
+        <section class="pt-4">
+            <div class="text-center max-w-xl mx-auto mb-8 space-y-2">
+                <h3 class="text-xs font-bold tracking-wider uppercase text-blue-600">TRANSPARENT PRICING</h3>
+                <h2 class="text-xl sm:text-2xl font-bold text-slate-900">Peace of Mind for Your Business Accounts</h2>
+                <p class="text-xs text-slate-500">Choose the monitoring capacity that fits your business scale. Cancel or change plans anytime.</p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+                <!-- FREE TIER -->
+                <div class="bg-white border border-slate-200 rounded-2xl p-6 flex flex-col justify-between shadow-sm">
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-sm font-bold text-slate-900">Free Tier</span>
+                            <span class="text-[11px] font-semibold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">Complimentary</span>
+                        </div>
+                        <div class="text-2xl font-extrabold text-slate-900 mb-4">$0 <span class="text-xs font-normal text-slate-500">/ forever</span></div>
+                        <ul class="text-xs text-slate-600 space-y-2.5 mb-6">
+                            <li class="flex items-center gap-2"><span>✓</span> 3 Daily Registry Searches</li>
+                            <li class="flex items-center gap-2"><span>✓</span> Track up to 3 UK entities</li>
+                            <li class="flex items-center gap-2"><span>✓</span> Instant Telegram status alerts</li>
+                            <li class="flex items-center gap-2 text-slate-400"><span>✕</span> Unlimited portfolio tracking</li>
+                        </ul>
+                    </div>
+                    {% if not user %}
+                        <a href="/auth" class="w-full text-center bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs py-2.5 rounded-xl transition">
+                            Get Started Free
+                        </a>
+                    {% else %}
+                        <div class="w-full text-center bg-slate-50 text-slate-400 font-semibold text-xs py-2.5 rounded-xl border border-slate-200">
+                            Current Base Tier
+                        </div>
+                    {% endif %}
+                </div>
+
+                <!-- PRO PLAN -->
+                <div class="bg-white border-2 border-slate-900 rounded-2xl p-6 flex flex-col justify-between shadow-md relative">
+                    <span class="absolute -top-3 right-6 bg-slate-900 text-white text-[10px] font-extrabold px-3 py-0.5 rounded-full uppercase tracking-wider">
+                        Most Popular for B2B
+                    </span>
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-sm font-bold text-slate-900">Radar Pro</span>
+                            <span class="text-[11px] font-semibold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">Full Coverage</span>
+                        </div>
+                        <div class="flex items-baseline gap-2 mb-4">
+                            <span class="text-2xl font-extrabold text-slate-900">£9.90</span>
+                            <span class="text-xs text-slate-500">/ month</span>
+                        </div>
+                        <ul class="text-xs text-slate-700 space-y-2.5 mb-6 font-medium">
+                            <li class="flex items-center gap-2"><span>✓</span> <b>Unlimited</b> registry searches</li>
+                            <li class="flex items-center gap-2"><span>✓</span> <b>Unlimited</b> monitored entities</li>
+                            <li class="flex items-center gap-2"><span>✓</span> 24/7 continuous corporate risk sync</li>
+                            <li class="flex items-center gap-2"><span>✓</span> Instant priority push alerts</li>
+                        </ul>
+                    </div>
+
+                    <div class="space-y-2.5 pt-2">
+                        <div class="p-2.5 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-start gap-2">
+                            <svg class="w-4 h-4 text-blue-600 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            <span><strong>Important:</strong> Please ensure your checkout email matches your registered account email for instant activation.</span>
+                        </div>
+
+                        <a href="https://checkout.dodopayments.com/buy/pdt_0NpeP9HBH35DX4vKzdC6Y?quantity=1&redirect_url=https://uk-company-radar.onrender.com%2F%3Fpayment%3Dsuccess{% if user %}&customer_email={{ user.email }}{% endif %}" 
+                           target="_blank" 
+                           class="block w-full py-3 px-4 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl text-center shadow-md transition-all text-xs">
+                            Upgrade to Monthly Pro (£9.90/mo) →
+                        </a>
+                        <a href="https://checkout.dodopayments.com/buy/pdt_0NpePTmT2ndnjwe2mU0uY?quantity=1&redirect_url=https://uk-company-radar.onrender.com%2F%3Fpayment%3Dsuccess{% if user %}&customer_email={{ user.email }}{% endif %}" 
+                           target="_blank" 
+                           class="block w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-xl text-center text-xs transition-all border border-slate-200">
+                            Or Save with Annual (£99/yr - 2 Mo Free)
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </section>
+        {% endif %}
+
+        <!-- SİSTEM GÜVEN VE DEĞER AÇIKLAMALARI -->
+        <section class="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">
+            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                <div class="text-2xl mb-2">⚡</div>
+                <h4 class="font-bold text-sm text-slate-900 mb-1">Live Registry Sync</h4>
+                <p class="text-xs text-slate-500 leading-relaxed">
+                    Synchronized with public UK corporate registries. Accurate business intelligence to monitor risk and status changes.
+                </p>
+            </div>
+            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                <div class="text-2xl mb-2">🛡️</div>
+                <h4 class="font-bold text-sm text-slate-900 mb-1">Proactive Partner Health</h4>
+                <p class="text-xs text-slate-500 leading-relaxed">
+                    Know well in advance when a key client or critical supplier shows administrative changes or restructuring filings.
+                </p>
+            </div>
+            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                <div class="text-2xl mb-2">📲</div>
+                <h4 class="font-bold text-sm text-slate-900 mb-1">Zero-Noise Updates</h4>
+                <p class="text-xs text-slate-500 leading-relaxed">
+                    No spam or bloated dashboards. Only receive notifications when an official status change impacts your monitored list.
+                </p>
+            </div>
+        </section>
+
+        <!-- MOBİL ERİŞİM / PWA KURULUM BÖLÜMÜ -->
+        <section id="pwa-install-card" class="bg-slate-900 text-white rounded-2xl p-6 sm:p-8 shadow-sm border border-slate-800 text-center space-y-4">
+            <div class="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-blue-500/20 text-blue-400 text-2xl border border-blue-400/30">
+                📲
+            </div>
+            <div class="max-w-xl mx-auto space-y-2">
+                <h3 class="text-lg sm:text-xl font-bold tracking-tight text-white">
+                    Track Companies On The Go
+                </h3>
+                <p class="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                    Add UK Company Radar to your phone's home screen for quick 1-tap access. Runs full-screen directly in your browser with zero App Store downloads or updates.
+                </p>
+            </div>
+
+            <div>
+                <button id="pwa-install-btn" type="button" class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs sm:text-sm py-2.5 px-6 rounded-xl shadow-md transition-all">
+                    <span>⚡</span> <span>Add to Home Screen</span>
+                </button>
+            </div>
+
+            <div id="ios-instruction" class="hidden mt-3 max-w-md mx-auto text-xs text-slate-300 bg-slate-800/80 border border-slate-700 rounded-xl p-3">
+                Tap the <strong class="text-white">Share</strong> button <span class="text-sm">⎋</span> in Safari, then scroll down and tap <strong class="text-white">'Add to Home Screen'</strong> ➕.
+            </div>
+        </section>
+
+    </main>
+
+    <!-- FOOTER & ZORUNLU YASAL FERAGATNAME -->
+    <footer class="border-t border-slate-200 bg-white py-6 mt-12 text-xs text-slate-400">
+        <div class="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div>
+                © 2026 UK Company Radar. Smart Partner Intelligence. <br>
+                <span class="text-[11px] text-slate-400">UK Company Radar is an independent business intelligence tool and is not affiliated with, endorsed by, or part of Companies House or the UK Government.</span>
+            </div>
+            <div class="flex items-center gap-4">
+                <a href="https://t.me/uk_company_radar_bot" target="_blank" class="hover:text-slate-600 transition flex items-center gap-1 font-medium">
+                    <span>🤖</span> Telegram Bot
+                </a>
+                <span class="text-slate-300">•</span>
+                <button type="button" onclick="openSupportModal()" class="hover:text-slate-700 font-semibold text-slate-500 transition flex items-center gap-1">
+                    <span>🛠️</span> Support Desk
+                </button>
+            </div>
+        </div>
+    </footer>
+
+    <!-- DİNAMİK ŞİRKET İSTİHBARAT & RİSK DOSYASI MODAL'I -->
+    <div id="companyModal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl overflow-hidden my-8 transform transition-all">
+            
+            <!-- Modal Başlık & Kapatma -->
+            <div class="bg-slate-900 text-white p-6 flex justify-between items-start">
+                <div>
+                    <div class="flex items-center space-x-3">
+                        <span id="modalStatusBadge" class="text-xs font-bold px-2.5 py-1 rounded uppercase tracking-wider bg-emerald-500 text-white">ACTIVE</span>
+                        <span id="modalCompanyNum" class="text-xs text-slate-400 font-mono">00000000</span>
+                    </div>
+                    <h3 id="modalCompanyName" class="text-xl font-bold text-white mt-2">Loading Company...</h3>
+                    <p id="modalAddress" class="text-xs text-slate-300 mt-1">...</p>
+                </div>
+                <button onclick="closeCompanyModal()" class="text-slate-400 hover:text-white text-2xl font-bold leading-none p-1 focus:outline-none">&times;</button>
+            </div>
+
+            <!-- Yükleniyor Göstergesi -->
+            <div id="modalLoading" class="p-12 text-center">
+                <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-600 border-t-transparent"></div>
+                <p class="text-sm text-slate-500 mt-3 font-medium">Fetching corporate registry, officers, floating charges & calculating solvency score...</p>
+            </div>
+
+            <!-- Detay İçeriği -->
+            <div id="modalContent" class="hidden p-6 space-y-6 max-h-[75vh] overflow-y-auto text-sm">
+                
+                <!-- DİNAMİK RİSK & SOLVENCY ANALİZ KARTI (YENİ EKLENDİ) -->
+                <div class="bg-slate-900 text-white p-5 rounded-2xl shadow-sm border border-slate-800 space-y-4">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+                        <div>
+                            <div class="text-[11px] font-bold uppercase tracking-wider text-blue-400">Automated Solvency & Counterparty Risk</div>
+                            <div class="text-xs text-slate-400 mt-0.5">Based on statutory filings, charges & corporate activity</div>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <div class="text-right">
+                                <span id="modalRiskScoreText" class="text-2xl font-black text-white">--/100</span>
+                                <span class="block text-[10px] uppercase font-bold text-slate-400">Calculated Score</span>
+                            </div>
+                            <span id="modalRiskBadge" class="px-3 py-1.5 rounded-xl text-xs font-extrabold uppercase tracking-wide bg-slate-700 text-white">
+                                ANALYZING...
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- "Neye Göre?" Gerekçelendirme Listesi -->
+                    <div>
+                        <div class="text-xs font-semibold text-slate-300 mb-2 flex items-center gap-1.5">
+                            <span>🔍</span> Evaluation Audit Factors (Why this score?):
+                        </div>
+                        <ul id="modalRiskFactors" class="space-y-1.5 text-xs text-slate-300">
+                            <!-- Dinamik olarak JS tarafından doldurulacak -->
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- 1. Temel Sicil ve Teslim Tarihleri -->
+                <div>
+                    <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">1. Registry & Filing Deadlines</h4>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-`templates/index.html` dosyanız baştan sona güncellendi. 
+
+Bu güncellemede yapılan değişiklikler şunlardır:
+1. **Dinamik Risk ve Solvency Değerleme Kartı Eklendi:** Şirkete tıklandığında açılan modalın en tepesine **Calculated Score (0-100)** puanı, renkli risk seviyesi rozeti (`LOW`, `MODERATE`, `HIGH`, `CRITICAL`) ve puanın kırılma gerekçelerini listeleyen **"Evaluation Audit Factors (Why this score?)"** alanı eklendi[cite: 6].
+2. **JavaScript Mantığı Bağlandı:** `openCompanyModal` fonksiyonu, `app.py`'den dönen `risk_analysis` verisini okuyarak faktörleri yeşil (✓), sarı (⚠️) ve kırmızı (🚨) ikonlarla dinamik olarak dolduracak şekilde güncellendi[cite: 6].
+3. **Google Ads İhlal Temizliği ve Feragatname (Disclaimer):** Google Ads botlarının "resmi kamu hizmeti" zannetmesini önlemek için resmiyet çağrıştıran ifadeler bağımsız B2B analitiği diline çevrildi, footer alanına zorunlu bağımsızlık feragatnamesi eklendi[cite: 6, 10, 15].
+
+Aşağıdaki kod bloğunu kopyalayıp `templates/index.html` dosyanıza doğrudan yapıştırabilirsiniz:
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UK Company Radar - Trade with Confidence & Protect Your Cash Flow</title>
+    <!-- FAVICON -->
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+
+    <!-- PWA & MOBILE CONFIGURATION -->
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#0f172a">
+    <meta name="mobile-web-app-capable" content="yes">
+
+    <!-- APPLE / IOS META TAGS -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="CompanyRadar">
+    <link rel="apple-touch-icon" href="/static/favicon.svg">
+
+    <script src="[https://cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
+    <link href="[https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap](https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap)" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col antialiased">
+
+    <!-- ÜST MENÜ & NAVBAR -->
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+        <div class="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+            <a href="/" class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center font-bold text-lg shadow-sm">
+                    🛡️
+                </div>
+                <div>
+                    <span class="font-bold text-base text-slate-900 block leading-tight">UK Company Radar</span>
+                    <span class="text-[11px] text-slate-500 font-medium">Proactive Partner & Solvency Intelligence</span>
+                </div>
+            </a>
+
+            <div class="flex items-center gap-3">
+                {% if user %}
+                    <div class="hidden sm:flex items-center gap-2 mr-2">
+                        {% if user.is_admin %}
+                            <a href="/admin/users" class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200 transition">
+                                👑 ADMIN (USERS)
+                            </a>
+                        {% elif is_pro %}
+                            <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                ⭐ PRO PLAN
+                            </span>
+                        {% else %}
+                            <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                                FREE TIER
+                            </span>
+                        {% endif %}
+                        <span class="text-xs text-slate-500 font-medium">{{ user.email }}</span>
+                    </div>
+
+                    <div class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold">
+                        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                        Radar Active
+                    </div>
+
+                    <a href="/auth/logout" class="text-xs font-semibold text-slate-600 hover:text-slate-900 px-3 py-2 rounded-lg hover:bg-slate-100 transition">
+                        Sign Out
+                    </a>
+                {% else %}
+                    <a href="/auth?mode=login" class="text-xs font-semibold text-slate-700 hover:text-slate-900 px-3 py-2">
+                        Sign In
+                    </a>
+                    <a href="/auth?mode=register" class="text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-xl shadow-sm transition">
+                        Create Free Account
+                    </a>
+                {% endif %}
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto px-4 py-8 flex-1 w-full space-y-8">
+
+        <!-- HERO BÖLÜMÜ -->
+        <section class="text-center max-w-3xl mx-auto pt-4 pb-2 space-y-3">
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-xs font-semibold tracking-wide">
+                <span>🛡️</span> Smart Cash Flow & Partner Solvency Monitoring
+            </div>
+            <h1 class="text-2xl sm:text-4xl font-extrabold text-slate-900 tracking-tight leading-tight">
+                Trade with Confidence. <br class="hidden sm:inline"> Protect Your Cash Flow.
+            </h1>
+            <p class="text-sm sm:text-base text-slate-600 leading-relaxed max-w-2xl mx-auto">
+                Keep a clear, continuous view of your key clients and suppliers. Receive timely, quiet updates whenever corporate filings, strike-off notices, or corporate statuses change.
+            </p>
+        </section>
+
+        <!-- KOTA VE PAYWALL BİLDİRİMLERİ -->
+        {% if search_limit_reached %}
+        <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 sm:p-5 text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+                <h4 class="font-bold text-sm text-amber-900">Daily Search Capacity Reached ({{ search_count }}/{{ search_limit }})</h4>
+                <p class="text-xs text-amber-800 mt-1">
+                    Your daily complimentary searches reset at midnight UTC. You can upgrade to Pro for unlimited on-demand entity lookups.
+                </p>
+            </div>
+            <a href="[https://checkout.dodopayments.com/buy/pdt_0NpeP9HBH35DX4vKzdC6Y?quantity=1&redirect_url=https://uk-company-radar.onrender.com%2F%3Fpayment%3Dsuccess](https://checkout.dodopayments.com/buy/pdt_0NpeP9HBH35DX4vKzdC6Y?quantity=1&redirect_url=https://uk-company-radar.onrender.com%2F%3Fpayment%3Dsuccess){% if user %}&customer_email={{ user.email }}{% endif %}" target="_blank" class="inline-flex justify-center items-center whitespace-nowrap bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-2.5 px-5 rounded-xl shadow-sm transition">
+                Unlock Unlimited Searches →
+            </a>
+        </div>
+        {% endif %}
+
+        {% if watchlist_limit_reached %}
+        <div class="bg-indigo-50 border border-indigo-200 rounded-2xl p-4 sm:p-5 text-indigo-950 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+                <h4 class="font-bold text-sm text-indigo-900">Complimentary Monitoring Limit Reached (3/3 Entities)</h4>
+                <p class="text-xs text-indigo-800 mt-1">
+                    Free tier keeps a watchful eye on up to 3 UK entities. Upgrade to Pro for unlimited portfolio monitoring and 24/7 background sync.
+                </p>
+            </div>
+            <a href="[https://checkout.dodopayments.com/buy/pdt_0NpeP9HBH35DX4vKzdC6Y?quantity=1&redirect_url=https://uk-company-radar.onrender.com%2F%3Fpayment%3Dsuccess](https://checkout.dodopayments.com/buy/pdt_0NpeP9HBH35DX4vKzdC6Y?quantity=1&redirect_url=https://uk-company-radar.onrender.com%2F%3Fpayment%3Dsuccess){% if user %}&customer_email={{ user.email }}{% endif %}" target="_blank" class="inline-flex justify-center items-center whitespace-nowrap bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-2.5 px-5 rounded-xl shadow-sm transition">
+                Upgrade to Pro (Unlimited) →
+            </a>
+        </div>
+        {% endif %}
+
+        <!-- ARAMA FORMU -->
+        <section class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+                <h2 class="text-xs font-bold tracking-wider uppercase text-slate-500">LOOK UP ANY UK REGISTERED BUSINESS</h2>
+                <span class="inline-flex items-center text-xs px-2.5 py-1 rounded-full font-semibold {{ 'bg-amber-100 text-amber-800' if search_limit_reached else 'bg-slate-100 text-slate-700' }}">
+                    {% if is_pro %}
+                        Daily Free Searches: Unlimited
+                    {% else %}
+                        Daily Free Searches: {{ remaining_searches }}/{{ search_limit }}
+                    {% endif %}
+                </span>
+            </div>
+
+            <form action="/" method="GET" class="flex flex-col sm:flex-row gap-3">
+                <input 
+                    type="text" 
+                    name="q" 
+                    value="{{ query or '' }}" 
+                    placeholder="Search by company name or registry number (e.g. Barclays, Dyson, Tesco)..." 
+                    required 
+                    class="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition"
+                >
+                <button type="submit" class="bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs py-2.5 px-6 rounded-xl shadow-sm transition flex items-center justify-center gap-2">
+                    <span>🔍</span> Check Standing
+                </button>
+            </form>
+
+            <!-- HIZLI ÖRNEK ARAMA BUTONLARI -->
+            <div class="mt-4 pt-3 border-t border-slate-100 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                <span class="font-medium text-slate-400">Quick checks:</span>
+                <a href="/?q=Barclays" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition">Barclays</a>
+                <a href="/?q=Dyson" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition">Dyson</a>
+                <a href="/?q=Tesco" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition">Tesco</a>
+                <a href="/?q=Glens+of+Antrim" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition">Glens of Antrim</a>
+            </div>
+        </section>
+
+        <!-- ARAMA SONUÇLARI -->
+        {% if results %}
+        <section class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
+            <h3 class="text-xs font-bold tracking-wider uppercase text-slate-500">UK CORPORATE REGISTRY RECORDS ({{ results|length }})</h3>
+            <div class="divide-y divide-slate-100">
+                {% for item in results %}
+                <div class="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            {% if user %}
+                            <button type="button" onclick="openCompanyModal('{{ item.company_number }}')" class="font-bold text-sm text-slate-900 hover:text-blue-600 hover:underline text-left">
+                                {{ item.title }} 🔍
+                            </button>
+                            {% else %}
+                            <span class="font-bold text-sm text-slate-900">{{ item.title }}</span>
+                            {% endif %}
+                            <span class="text-xs font-mono text-slate-500">#{{ item.company_number }}</span>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-2 mt-1.5 text-xs text-slate-500">
+                            <span class="px-2 py-0.5 rounded text-[11px] font-semibold {{ 'bg-emerald-50 text-emerald-700 border border-emerald-200' if item.company_status == 'active' else 'bg-rose-50 text-rose-700 border border-rose-200' }}">
+                                {{ (item.company_status or 'unknown')|upper }}
+                            </span>
+                            <span>• {{ item.company_type or 'Limited' }}</span>
+                            {% if item.address_snippet %}
+                                <span>• {{ item.address_snippet }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div>
+                        {% if user %}
+                            <form action="/track" method="POST">
+                                <input type="hidden" name="company_number" value="{{ item.company_number }}">
+                                <input type="hidden" name="company_name" value="{{ item.title }}">
+                                <input type="hidden" name="status" value="{{ item.company_status or 'active' }}">
+                                <input type="hidden" name="type" value="{{ item.company_type or '' }}">
+                                <input type="hidden" name="jurisdiction" value="{{ item.address_snippet or '' }}">
+                                <button type="submit" class="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold py-2 px-4 rounded-xl shadow-sm transition flex items-center justify-center gap-1.5">
+                                    <span>+</span> Add to Monitored List
+                                </button>
+                            </form>
+                        {% else %}
+                            <a href="/auth" class="w-full sm:w-auto inline-block text-center bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold py-2 px-4 rounded-xl transition">
+                                Sign In to Monitor
+                            </a>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+        {% elif query %}
+        <div class="bg-white border border-slate-200 rounded-2xl p-8 text-center text-sm text-slate-500">
+            No corporate records found for "<b>{{ query }}</b>".
+        </div>
+        {% endif %}
+
+        <!-- TAKİP EDİLEN PORTFÖY LİSTESİ -->
+        {% if user %}
+        <section class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h3 class="text-xs font-bold tracking-wider uppercase text-slate-500">MONITORED BUSINESS PARTNERS</h3>
+                    <span class="text-xs text-slate-400">Continuous 24/7 Registry & Status Radar</span>
+                </div>
+                <span class="text-xs font-semibold text-slate-600">
+                    {% if is_pro %}
+                        Portfolio: {{ watchlist|length }} Entities (Unlimited Pro)
+                    {% else %}
+                        Portfolio: {{ watchlist|length }}/3 Max (Free)
+                    {% endif %}
+                </span>
+            </div>
+
+            {% if watchlist %}
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs border-collapse">
+                    <thead>
+                        <tr class="border-b border-slate-200 text-slate-400 uppercase tracking-wider text-[11px]">
+                            <th class="py-3 font-semibold">Status</th>
+                            <th class="py-3 font-semibold">Company Name</th>
+                            <th class="py-3 font-semibold">Reg No</th>
+                            <th class="py-3 font-semibold">Jurisdiction / Type</th>
+                            <th class="py-3 font-semibold text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        {% for item in watchlist %}
+                        <tr>
+                            <td class="py-3.5">
+                                <span class="px-2 py-0.5 rounded text-[11px] font-bold {{ 'bg-emerald-50 text-emerald-700 border border-emerald-200' if item.status == 'active' else 'bg-rose-50 text-rose-700 border border-rose-200' }}">
+                                    {{ item.status|upper }}
+                                </span>
+                            </td>
+                            <td class="py-3.5">
+                                <button type="button" 
+                                        onclick="openCompanyModal('{{ item.company_number }}')" 
+                                        class="font-bold text-slate-900 hover:text-blue-600 hover:underline text-left focus:outline-none flex items-center gap-1.5">
+                                    <span>{{ item.company_name }}</span>
+                                    <span class="text-[10px] text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded font-normal">Details ↗</span>
+                                </button>
+                            </td>
+                            <td class="py-3.5 font-mono text-slate-500">{{ item.company_number }}</td>
+                            <td class="py-3.5 text-slate-500">{{ item.jurisdiction or item.type or 'UK Entity' }}</td>
+                            <td class="py-3.5 text-right">
+                                <form action="/untrack" method="POST" class="inline">
+                                    <input type="hidden" name="company_id" value="{{ item.id }}">
+                                    <button type="submit" class="text-rose-600 hover:text-rose-800 font-semibold text-xs">
+                                        Remove
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="py-8 text-center text-xs text-slate-400">
+                You are not monitoring any entities yet. Search above and click <b>"Add to Monitored List"</b> to activate automated tracking.
+            </div>
+            {% endif %}
+        </section>
+        {% endif %}
+
+        <!-- TELEGRAM BİLDİRİM KARTI -->
+        {% if user %}
+        <div class="bg-slate-900 text-white p-5 rounded-2xl shadow-sm border border-slate-800 flex flex-col md:flex-row items-center justify-between gap-4">
+            <div class="flex items-center gap-3.5 text-left w-full md:w-auto">
+                <div class="w-10 h-10 rounded-xl bg-blue-500/20 border border-blue-400/30 flex items-center justify-center text-xl flex-shrink-0">
+                    📲
+                </div>
+                <div>
+                    <h3 class="text-xs font-bold uppercase tracking-wider text-blue-300">
+                        Optional: Discreet Mobile Status Alerts
+                    </h3>
+                    <p class="text-xs text-slate-300 mt-0.5">
+                        Connect our Telegram channel to receive instant, quiet alerts whenever an entity in your portfolio updates their official registry status.
+                    </p>
+                </div>
+            </div>
+            <a href="[https://t.me/uk_company_radar_bot](https://t.me/uk_company_radar_bot)" target="_blank" class="w-full md:w-auto text-center whitespace-nowrap bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs py-2 px-5 rounded-xl transition">
+                Connect Telegram Bot →
+            </a>
+        </div>
+        {% endif %}
+
         <!-- FİYATLANDIRMA / PLAN SEÇİM TABLOSU (PRO KULLANICILARDA GİZLENİR) -->
         {% if not is_pro %}
         <section class="pt-4">
@@ -359,14 +888,13 @@
                         <ul class="text-xs text-slate-700 space-y-2.5 mb-6 font-medium">
                             <li class="flex items-center gap-2"><span>✓</span> <b>Unlimited</b> registry searches</li>
                             <li class="flex items-center gap-2"><span>✓</span> <b>Unlimited</b> monitored entities</li>
-                            <li class="flex items-center gap-2"><span>✓</span> 24/7 continuous Companies House sync</li>
+                            <li class="flex items-center gap-2"><span>✓</span> 24/7 continuous corporate registry sync</li>
                             <li class="flex items-center gap-2"><span>✓</span> Instant priority push alerts</li>
                         </ul>
                     </div>
 
                     <!-- DODO PAYMENTS CHECKOUT ALANI -->
                     <div class="space-y-2.5 pt-2">
-                        <!-- E-posta Eşleştirme Bilgi Notu -->
                         <div class="p-2.5 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-start gap-2">
                             <svg class="w-4 h-4 text-blue-600 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
@@ -374,13 +902,12 @@
                             <span><strong>Important:</strong> Please ensure your checkout email matches your registered account email for instant activation.</span>
                         </div>
 
-                        <!-- Canlı GBP Checkout Butonları -->
-                        <a href="https://checkout.dodopayments.com/buy/pdt_0NpeP9HBH35DX4vKzdC6Y?quantity=1&redirect_url=https://uk-company-radar.onrender.com%2F%3Fpayment%3Dsuccess{% if user %}&customer_email={{ user.email }}{% endif %}" 
+                        <a href="[https://checkout.dodopayments.com/buy/pdt_0NpeP9HBH35DX4vKzdC6Y?quantity=1&redirect_url=https://uk-company-radar.onrender.com%2F%3Fpayment%3Dsuccess](https://checkout.dodopayments.com/buy/pdt_0NpeP9HBH35DX4vKzdC6Y?quantity=1&redirect_url=https://uk-company-radar.onrender.com%2F%3Fpayment%3Dsuccess){% if user %}&customer_email={{ user.email }}{% endif %}" 
                            target="_blank" 
                            class="block w-full py-3 px-4 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl text-center shadow-md transition-all text-xs">
                             Upgrade to Monthly Pro (£9.90/mo) →
                         </a>
-                        <a href="https://checkout.dodopayments.com/buy/pdt_0NpePTmT2ndnjwe2mU0uY?quantity=1&redirect_url=https://uk-company-radar.onrender.com%2F%3Fpayment%3Dsuccess{% if user %}&customer_email={{ user.email }}{% endif %}" 
+                        <a href="[https://checkout.dodopayments.com/buy/pdt_0NpePTmT2ndnjwe2mU0uY?quantity=1&redirect_url=https://uk-company-radar.onrender.com%2F%3Fpayment%3Dsuccess](https://checkout.dodopayments.com/buy/pdt_0NpePTmT2ndnjwe2mU0uY?quantity=1&redirect_url=https://uk-company-radar.onrender.com%2F%3Fpayment%3Dsuccess){% if user %}&customer_email={{ user.email }}{% endif %}" 
                            target="_blank" 
                            class="block w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-xl text-center text-xs transition-all border border-slate-200">
                             Or Save with Annual (£99/yr - 2 Mo Free)
@@ -395,7 +922,7 @@
         <section class="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">
             <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
                 <div class="text-2xl mb-2">⚡</div>
-                <h4 class="font-bold text-sm text-slate-900 mb-1">Direct Official Sync</h4>
+                <h4 class="font-bold text-sm text-slate-900 mb-1">Live Registry Sync</h4>
                 <p class="text-xs text-slate-500 leading-relaxed">
                     Synchronized with public UK corporate registries. Accurate business intelligence to monitor risk and status changes.
                 </p>
@@ -416,7 +943,7 @@
             </div>
         </section>
 
-        <!-- MOBİL ERİŞİM / PWA KURULUM BÖLÜMÜ (YENİ EKLENDİ) -->
+        <!-- MOBİL ERİŞİM / PWA KURULUM BÖLÜMÜ -->
         <section id="pwa-install-card" class="bg-slate-900 text-white rounded-2xl p-6 sm:p-8 shadow-sm border border-slate-800 text-center space-y-4">
             <div class="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-blue-500/20 text-blue-400 text-2xl border border-blue-400/30">
                 📲
@@ -430,14 +957,12 @@
                 </p>
             </div>
 
-            <!-- Kurulum Butonu -->
             <div>
                 <button id="pwa-install-btn" type="button" class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs sm:text-sm py-2.5 px-6 rounded-xl shadow-md transition-all">
                     <span>⚡</span> <span>Add to Home Screen</span>
                 </button>
             </div>
 
-            <!-- iOS Safari İçin Yönlendirme İpucu -->
             <div id="ios-instruction" class="hidden mt-3 max-w-md mx-auto text-xs text-slate-300 bg-slate-800/80 border border-slate-700 rounded-xl p-3">
                 Tap the <strong class="text-white">Share</strong> button <span class="text-sm">⎋</span> in Safari, then scroll down and tap <strong class="text-white">'Add to Home Screen'</strong> ➕.
             </div>
@@ -445,18 +970,21 @@
 
     </main>
 
-    <!-- FOOTER -->
-    <footer class="border-t border-slate-200 bg-white py-6 mt-12 text-xs text-slate-400">
+    <!-- FOOTER & ZORUNLU YASAL FERAGATNAME -->
+    <footer class="border-t border-slate-200 bg-white py-6 mt-12 text-xs text-slate-500">
         <div class="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div>
-                © 2026 UK Company Radar. Smart Partner Intelligence.
+                <div>© 2026 UK Company Radar. Smart Partner Intelligence.</div>
+                <p class="text-[11px] text-slate-400 mt-1">
+                    UK Company Radar is an independent business intelligence tool and is not affiliated with, endorsed by, or part of Companies House or the UK Government.
+                </p>
             </div>
-            <div class="flex items-center gap-4">
-                <a href="https://t.me/uk_company_radar_bot" target="_blank" class="hover:text-slate-600 transition flex items-center gap-1 font-medium">
+            <div class="flex items-center gap-4 flex-shrink-0">
+                <a href="[https://t.me/uk_company_radar_bot](https://t.me/uk_company_radar_bot)" target="_blank" class="hover:text-slate-700 transition flex items-center gap-1 font-medium">
                     <span>🤖</span> Telegram Bot
                 </a>
                 <span class="text-slate-300">•</span>
-                <button type="button" onclick="openSupportModal()" class="hover:text-slate-700 font-semibold text-slate-500 transition flex items-center gap-1">
+                <button type="button" onclick="openSupportModal()" class="hover:text-slate-700 font-semibold text-slate-600 transition flex items-center gap-1">
                     <span>🛠️</span> Support Desk
                 </button>
             </div>
@@ -483,12 +1011,41 @@
             <!-- Yükleniyor Göstergesi -->
             <div id="modalLoading" class="p-12 text-center">
                 <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-600 border-t-transparent"></div>
-                <p class="text-sm text-slate-500 mt-3 font-medium">Fetching official Companies House registry, officers & floating charges...</p>
+                <p class="text-sm text-slate-500 mt-3 font-medium">Fetching corporate registry, officers, floating charges & risk evaluation...</p>
             </div>
 
             <!-- Detay İçeriği -->
             <div id="modalContent" class="hidden p-6 space-y-6 max-h-[75vh] overflow-y-auto text-sm">
                 
+                <!-- DİNAMİK RİSK & SOLVENCY ANALİZ KARTI (YENİ EKLENDİ) -->
+                <div class="bg-slate-900 text-white p-5 rounded-2xl shadow-sm border border-slate-800 space-y-4">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+                        <div>
+                            <div class="text-[11px] font-bold uppercase tracking-wider text-blue-400">Automated Solvency & Counterparty Risk</div>
+                            <div class="text-xs text-slate-400 mt-0.5">Based on statutory filings, charges & corporate activity</div>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <div class="text-right">
+                                <span id="modalRiskScoreText" class="text-2xl font-black text-white">--/100</span>
+                                <span class="block text-[10px] uppercase font-bold text-slate-400">Calculated Score</span>
+                            </div>
+                            <span id="modalRiskBadge" class="px-3 py-1.5 rounded-xl text-xs font-extrabold uppercase tracking-wide bg-slate-700 text-white">
+                                ANALYZING...
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- "Neye Göre?" Gerekçelendirme Listesi -->
+                    <div>
+                        <div class="text-xs font-semibold text-slate-300 mb-2 flex items-center gap-1.5">
+                            <span>🔍</span> Evaluation Audit Factors (Why this score?):
+                        </div>
+                        <ul id="modalRiskFactors" class="space-y-1.5 text-xs text-slate-300">
+                            <!-- Dinamik olarak JS tarafından doldurulacak -->
+                        </ul>
+                    </div>
+                </div>
+
                 <!-- 1. Temel Sicil ve Teslim Tarihleri -->
                 <div>
                     <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">1. Registry & Filing Deadlines</h4>
@@ -520,7 +1077,7 @@
                     </div>
                 </div>
 
-                <!-- 2. İpotek & Rehin Kayıtları (Charges / Mortgages) - KRİTİK RİSK -->
+                <!-- 2. İpotek & Rehin Kayıtları (Charges / Mortgages) -->
                 <div>
                     <div class="flex items-center justify-between mb-2">
                         <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400">2. Mortgages & Floating Charges (Secured Debt)</h4>
@@ -543,7 +1100,7 @@
 
             <!-- Modal Alt Kısım -->
             <div class="bg-slate-50 px-6 py-4 border-t border-slate-100 flex justify-between items-center text-xs text-slate-500">
-                <span>Source: Companies House Executive Agency</span>
+                <span>Public corporate intelligence record</span>
                 <button onclick="closeCompanyModal()" class="px-4 py-2 bg-slate-900 text-white rounded-lg font-medium hover:bg-slate-800 transition">Close</button>
             </div>
 
@@ -636,12 +1193,10 @@
     const isIos = () => /iphone|ipad|ipod/.test(window.navigator.userAgent.toLowerCase());
     const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
 
-    // Kullanıcı zaten standalone uygulama modundaysa indirme kartını gizle
     if (isStandalone() && pwaCard) {
         pwaCard.classList.add('hidden');
     }
 
-    // Android/Chrome yükleme tetikleyicisi
     window.addEventListener('beforeinstallprompt', (e) => {
         e.preventDefault();
         deferredPrompt = e;
@@ -674,7 +1229,7 @@
         });
     }
 
-    /* ŞİRKET DETAY MODAL'I */
+    /* ŞİRKET DETAY MODAL'I & RİSK DEĞERLEMESİ */
     async function openCompanyModal(companyNumber) {
         const modal = document.getElementById('companyModal');
         const loading = document.getElementById('modalLoading');
@@ -709,6 +1264,49 @@
                 badge.className = "text-xs font-bold px-2.5 py-1 rounded uppercase tracking-wider bg-emerald-500 text-white";
             } else {
                 badge.className = "text-xs font-bold px-2.5 py-1 rounded uppercase tracking-wider bg-rose-600 text-white";
+            }
+
+            // Otomatik Risk & Gerekçe Hesaplaması Doldurma (Yeni)
+            const risk = data.risk_analysis || {};
+            const scoreText = document.getElementById('modalRiskScoreText');
+            const riskBadge = document.getElementById('modalRiskBadge');
+            const factorsList = document.getElementById('modalRiskFactors');
+
+            if (scoreText) scoreText.innerText = `${risk.score || 0}/100`;
+
+            if (riskBadge) {
+                riskBadge.innerText = risk.level || 'UNKNOWN';
+                if (risk.badge_color === 'emerald') {
+                    riskBadge.className = "px-3 py-1.5 rounded-xl text-xs font-extrabold uppercase tracking-wide bg-emerald-500 text-slate-950";
+                } else if (risk.badge_color === 'amber') {
+                    riskBadge.className = "px-3 py-1.5 rounded-xl text-xs font-extrabold uppercase tracking-wide bg-amber-400 text-slate-950";
+                } else {
+                    riskBadge.className = "px-3 py-1.5 rounded-xl text-xs font-extrabold uppercase tracking-wide bg-rose-600 text-white";
+                }
+            }
+
+            if (factorsList) {
+                factorsList.innerHTML = '';
+                (risk.factors || []).forEach(f => {
+                    let icon = '•';
+                    let colorClass = 'text-slate-300';
+                    if (f.type === 'positive') {
+                        icon = '✓';
+                        colorClass = 'text-emerald-400';
+                    } else if (f.type === 'warning') {
+                        icon = '⚠️';
+                        colorClass = 'text-amber-300';
+                    } else if (f.type === 'danger') {
+                        icon = '🚨';
+                        colorClass = 'text-rose-400 font-semibold';
+                    }
+                    factorsList.innerHTML += `
+                        <li class="flex items-start gap-2 ${colorClass}">
+                            <span class="mt-0.5 select-none">${icon}</span>
+                            <span>${f.text}</span>
+                        </li>
+                    `;
+                });
             }
             
             // Tarihler & Tür
@@ -781,7 +1379,7 @@
             content.classList.remove('hidden');
             
         } catch (err) {
-            loading.innerHTML = `<p class="text-sm text-rose-600 font-medium">Failed to retrieve intelligence from Companies House: ${err.message}</p>`;
+            loading.innerHTML = `<p class="text-sm text-rose-600 font-medium">Failed to retrieve intelligence from registry: ${err.message}</p>`;
         }
     }
 
@@ -885,10 +1483,7 @@
     </script>
 
     <!-- Cloudflare Web Analytics -->
-    <script type='module' src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "9ffb911737054635a5e93e0aabec2e25"}'></script>
+    <script type='module' src='[https://static.cloudflareinsights.com/beacon.min.js](https://static.cloudflareinsights.com/beacon.min.js)' data-cf-beacon='{"token": "9ffb911737054635a5e93e0aabec2e25"}'></script>
     <!-- End Cloudflare Web Analytics -->
-    <p class="text-[11px] text-slate-400 mt-2">
-    UK Company Radar is an independent business intelligence tool and is not affiliated with, endorsed by, or part of Companies House or the UK Government.
-    </p>
 </body>
 </html>

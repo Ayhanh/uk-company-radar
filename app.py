@@ -456,6 +456,122 @@ def get_company_charges(company_number: str):
 
 
 # ---------------------------------------------------------
+# KURAL TABANLI RİSK SKORU VE DEĞERLEME MOTORU (YENİ)
+# ---------------------------------------------------------
+def calculate_company_risk_score(profile: dict, charges: list = None) -> dict:
+    """
+    Companies House resmi verilerine dayanarak 0-100 arası risk skoru ve 
+    gerekçeli analiz faktörlerini üretir.
+    """
+    score = 100
+    factors = []
+    
+    if not profile:
+        return {
+            "score": 50,
+            "level": "UNKNOWN",
+            "badge_color": "slate",
+            "action_required": False,
+            "factors": [{"type": "warning", "text": "Insufficient registry data to evaluate counterparty risk."}]
+        }
+    
+    status = (profile.get("company_status") or "unknown").lower()
+    
+    # 1. Hukuki Varlık / İflas Durumu
+    if status in ["liquidation", "administration", "receivership", "insolvent"]:
+        return {
+            "score": 10,
+            "level": "CRITICAL RISK",
+            "badge_color": "rose",
+            "action_required": True,
+            "factors": [
+                {"type": "danger", "text": f"Entity is officially under {status.upper()} / insolvency proceedings."},
+                {"type": "danger", "text": "Immediate creditor exposure. Trading on credit strongly discouraged."}
+            ]
+        }
+    elif status in ["dissolved", "converted-closed"]:
+        return {
+            "score": 15,
+            "level": "HIGH RISK",
+            "badge_color": "rose",
+            "action_required": True,
+            "factors": [
+                {"type": "danger", "text": f"Entity is officially {status.upper()} on the corporate registry."},
+                {"type": "danger", "text": "Ceased trading legally; contracts cannot be enforced."}
+            ]
+        }
+    else:
+        factors.append({"type": "positive", "text": "Entity maintains ACTIVE status on official UK registries."})
+    
+    # 2. Yasal Teslimat Tarihleri (Overdue Accounts & Confirmation)
+    accounts = profile.get("accounts", {})
+    if accounts.get("overdue", False):
+        score -= 25
+        factors.append({"type": "danger", "text": "Annual financial accounts filing is OVERDUE at Companies House (-25 pts)."})
+    else:
+        factors.append({"type": "positive", "text": "Financial reporting obligations are up to date."})
+        
+    conf_stmt = profile.get("confirmation_statement", {})
+    if conf_stmt.get("overdue", False):
+        score -= 20
+        factors.append({"type": "danger", "text": "Annual Confirmation Statement (PSC / ownership) is past due (-20 pts)."})
+    else:
+        factors.append({"type": "positive", "text": "Confirmation statement filings are compliant."})
+        
+    # 3. İpotek & Teminatlı Borçlar (Charges / Floating Mortgages)
+    if charges:
+        outstanding_charges = [c for c in charges if c.get("status") == "outstanding"]
+        if outstanding_charges:
+            penalty = min(30, len(outstanding_charges) * 10)
+            score -= penalty
+            factors.append({
+                "type": "warning", 
+                "text": f"{len(outstanding_charges)} outstanding secured floating charge(s)/mortgage(s) registered on assets (-{penalty} pts)."
+            })
+        else:
+            factors.append({"type": "positive", "text": "Zero outstanding floating charges registered (No secured bank encumbrances)."})
+    else:
+        factors.append({"type": "positive", "text": "No registered mortgage or debenture encumbrance on file."})
+            
+    # 4. Şirket Yaşı & Kurumsal Tecrübe
+    inc_date_str = profile.get("date_of_creation")
+    if inc_date_str:
+        try:
+            inc_date = datetime.strptime(inc_date_str, "%Y-%m-%d").date()
+            age_days = (date.today() - inc_date).days
+            if age_days < 365:
+                score -= 10
+                factors.append({"type": "warning", "text": "Newly formed entity (<12 months trading history) (-10 pts)."})
+            elif age_days > 1825:
+                factors.append({"type": "positive", "text": f"Established corporate track record ({age_days // 365} years in business)."})
+        except Exception:
+            pass
+
+    score = max(5, min(100, score))
+    
+    if score >= 80:
+        level = "LOW RISK"
+        badge_color = "emerald"
+        action_required = False
+    elif score >= 50:
+        level = "MODERATE RISK"
+        badge_color = "amber"
+        action_required = False
+    else:
+        level = "HIGH RISK"
+        badge_color = "rose"
+        action_required = True
+
+    return {
+        "score": score,
+        "level": level,
+        "badge_color": badge_color,
+        "action_required": action_required,
+        "factors": factors
+    }
+
+
+# ---------------------------------------------------------
 # ARKA PLAN GÖREVİ
 # ---------------------------------------------------------
 async def automated_background_monitor():
@@ -1247,11 +1363,15 @@ async def company_details_api(request: Request, company_number: str):
     officers = get_company_officers(company_number)
     charges = get_company_charges(company_number)
 
+    # Otomatik Risk Skoru & Neden Analizi
+    risk_analysis = calculate_company_risk_score(profile, charges)
+
     return {
         "profile": profile,
         "officers": officers[:8],
         "charges": charges[:8],
         "total_charges": len(charges),
+        "risk_analysis": risk_analysis,
     }
 
 
