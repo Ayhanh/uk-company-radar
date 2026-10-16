@@ -113,7 +113,7 @@
             <div>
                 <h4 class="font-bold text-sm text-indigo-900">Complimentary Monitoring Limit Reached (3/3 Entities)</h4>
                 <p class="text-xs text-indigo-800 mt-1">
-                    Free tier keeps a watchful eye on up to 3 UK entities. Upgrade to Pro for unlimited portfolio monitoring and 24/7 background sync.
+                    Free tier keeps a watchful eye on up to 3 UK entities. Upgrade to Pro for unlimited portfolio monitoring and hourly background sync.
                 </p>
             </div>
             <a href="https://checkout.dodopayments.com/buy/pdt_0NpeP9HBH35DX4vKzdC6Y?quantity=1&redirect_url=https://uk-company-radar.onrender.com%2F%3Fpayment%3Dsuccess{% if user %}&customer_email={{ user.email }}{% endif %}" target="_blank" class="inline-flex justify-center items-center whitespace-nowrap bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-2.5 px-5 rounded-xl shadow-sm transition">
@@ -222,7 +222,7 @@
             <div class="flex items-center justify-between">
                 <div>
                     <h3 class="text-xs font-bold tracking-wider uppercase text-slate-500">MONITORED BUSINESS PARTNERS</h3>
-                    <span class="text-xs text-slate-400">Continuous 24/7 Registry & Status Radar</span>
+                    <span class="text-xs text-slate-400">Automated Hourly Registry & Status Radar</span>
                 </div>
                 <span class="text-xs font-semibold text-slate-600">
                     {% if is_pro %}
@@ -312,7 +312,7 @@
             <div class="text-center max-w-xl mx-auto mb-8 space-y-2">
                 <h3 class="text-xs font-bold tracking-wider uppercase text-blue-600">TRANSPARENT PRICING</h3>
                 <h2 class="text-xl sm:text-2xl font-bold text-slate-900">Peace of Mind for Your Business Accounts</h2>
-                <p class="text-xs text-slate-500">Choose the monitoring capacity that fits your business scale. Cancel or change plans anytime.</p>
+                <p class="text-xs text-slate-500">Choose the monitoring capacity that fits your business scale. Modify or cancel your plan anytime.</p>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
@@ -323,7 +323,7 @@
                             <span class="text-sm font-bold text-slate-900">Free Tier</span>
                             <span class="text-[11px] font-semibold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">Complimentary</span>
                         </div>
-                        <div class="text-2xl font-extrabold text-slate-900 mb-4">$0 <span class="text-xs font-normal text-slate-500">/ forever</span></div>
+                        <div class="text-2xl font-extrabold text-slate-900 mb-4">£0 <span class="text-xs font-normal text-slate-500">/ forever</span></div>
                         <ul class="text-xs text-slate-600 space-y-2.5 mb-6">
                             <li class="flex items-center gap-2"><span>✓</span> 3 Daily Registry Searches</li>
                             <li class="flex items-center gap-2"><span>✓</span> Track up to 3 UK entities</li>
@@ -345,12 +345,12 @@
                 <!-- PRO PLAN (DODO PAYMENTS ENTEGRELİ) -->
                 <div class="bg-white border-2 border-slate-900 rounded-2xl p-6 flex flex-col justify-between shadow-md relative">
                     <span class="absolute -top-3 right-6 bg-slate-900 text-white text-[10px] font-extrabold px-3 py-0.5 rounded-full uppercase tracking-wider">
-                        Most Popular for B2B
+                        Recommended for active portfolios
                     </span>
                     <div>
                         <div class="flex items-center justify-between mb-2">
                             <span class="text-sm font-bold text-slate-900">Radar Pro</span>
-                            <span class="text-[11px] font-semibold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">Full Coverage</span>
+                            <span class="text-[11px] font-semibold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">Unlimited Monitoring</span>
                         </div>
                         <div class="flex items-baseline gap-2 mb-4">
                             <span class="text-2xl font-extrabold text-slate-900">£9.90</span>
@@ -359,8 +359,8 @@
                         <ul class="text-xs text-slate-700 space-y-2.5 mb-6 font-medium">
                             <li class="flex items-center gap-2"><span>✓</span> <b>Unlimited</b> registry searches</li>
                             <li class="flex items-center gap-2"><span>✓</span> <b>Unlimited</b> monitored entities</li>
-                            <li class="flex items-center gap-2"><span>✓</span> 24/7 continuous corporate registry sync</li>
-                            <li class="flex items-center gap-2"><span>✓</span> Instant priority push alerts</li>
+                            <li class="flex items-center gap-2"><span>✓</span> Hourly automated corporate registry sync</li>
+                            <li class="flex items-center gap-2"><span>✓</span> Priority real-time alert notifications</li>
                         </ul>
                     </div>
 
@@ -401,14 +401,14 @@
                 <div class="text-2xl mb-2">🛡️</div>
                 <h4 class="font-bold text-sm text-slate-900 mb-1">Proactive Partner Health</h4>
                 <p class="text-xs text-slate-500 leading-relaxed">
-                    Know well in advance when a key client or critical supplier shows administrative changes or restructuring filings.
+                    Get alerted when a key client or supplier's public registry record shows an administration, liquidation or strike-off filing.
                 </p>
             </div>
             <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
                 <div class="text-2xl mb-2">📲</div>
                 <h4 class="font-bold text-sm text-slate-900 mb-1">Zero-Noise Updates</h4>
                 <p class="text-xs text-slate-500 leading-relaxed">
-                    No spam or bloated dashboards. Only receive notifications when an official status change impacts your monitored list.
+                    No spam or bloated dashboards. Only receive notifications when a formal status change impacts your monitored list.
                 </p>
             </div>
         </section>
@@ -442,20 +442,26 @@
 
     <!-- FOOTER & ZORUNLU YASAL FERAGATNAME -->
     <footer class="border-t border-slate-200 bg-white py-6 mt-12 text-xs text-slate-500">
-        <div class="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div class="max-w-6xl mx-auto px-4 flex flex-col md:flex-row items-center justify-between gap-4">
             <div>
-                <div>© 2026 UK Company Radar. Smart Partner Intelligence.</div>
-                <p class="text-[11px] text-slate-400 mt-1">
-                    UK Company Radar is an independent business intelligence tool and is not affiliated with, endorsed by, or part of Companies House or the UK Government.
+                <div class="font-semibold text-slate-800">
+                    © 2026 UK Company Radar • Operated by Faktör-H Kalıp Makine San. Tic. Ltd. Şti.
+                </div>
+                <p class="text-[11px] text-slate-400 mt-1 max-w-2xl leading-relaxed">
+                    <strong>Notice:</strong> UK Company Radar is an independent business intelligence application providing statutory registry analysis. It does not provide regulated financial or credit broking advice. Not affiliated with or endorsed by Companies House or the UK Government.
                 </p>
             </div>
-            <div class="flex items-center gap-4 flex-shrink-0">
-                <a href="https://t.me/uk_company_radar_bot" target="_blank" class="hover:text-slate-700 transition flex items-center gap-1 font-medium">
-                    <span>🤖</span> Telegram Bot
+            <div class="flex flex-wrap items-center gap-3 text-slate-500 flex-shrink-0">
+                <a href="/legal" target="_blank" class="hover:text-slate-900 underline underline-offset-2">Terms & Privacy</a>
+                <span>•</span>
+                <a href="/legal" target="_blank" class="hover:text-slate-900 underline underline-offset-2">Refund Policy</a>
+                <span>•</span>
+                <a href="https://t.me/uk_company_radar_bot" target="_blank" class="hover:text-slate-900 transition flex items-center gap-1 font-medium">
+                    <span>🤖</span> Bot
                 </a>
-                <span class="text-slate-300">•</span>
-                <button type="button" onclick="openSupportModal()" class="hover:text-slate-700 font-semibold text-slate-600 transition flex items-center gap-1">
-                    <span>🛠️</span> Support Desk
+                <span>•</span>
+                <button type="button" onclick="openSupportModal()" class="hover:text-slate-900 font-medium">
+                    Support
                 </button>
             </div>
         </div>
@@ -585,9 +591,16 @@
             </div>
 
             <!-- Modal Alt Kısım -->
-            <div class="bg-slate-50 px-6 py-4 border-t border-slate-100 flex justify-between items-center text-xs text-slate-500">
-                <span>Public corporate intelligence record</span>
-                <button onclick="closeCompanyModal()" class="px-4 py-2 bg-slate-900 text-white rounded-lg font-medium hover:bg-slate-800 transition">Close</button>
+            <div class="bg-slate-50 px-6 py-4 border-t border-slate-100 text-xs text-slate-500">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between w-full gap-3">
+                    <div class="flex items-center gap-2">
+                        <span class="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                        <span>Source: Public Statutory Records • Data fetched: <strong id="modalFetchTimestamp" class="text-slate-700 font-mono">Just now</strong></span>
+                    </div>
+                    <button type="button" onclick="closeCompanyModal()" class="px-4 py-2 bg-slate-900 text-white rounded-lg font-medium hover:bg-slate-800 transition">
+                        Close
+                    </button>
+                </div>
             </div>
 
         </div>
@@ -751,6 +764,12 @@
             } else {
                 badge.className = "text-xs font-bold px-2.5 py-1 rounded uppercase tracking-wider bg-rose-600 text-white";
             }
+
+            // Canlı Saat / Fetch Zaman Damgası
+            const now = new Date();
+            const timeString = now.toLocaleDateString('en-GB') + ' ' + now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) + ' UTC';
+            const timeEl = document.getElementById('modalFetchTimestamp');
+            if (timeEl) timeEl.innerText = timeString;
 
             // Otomatik Risk & Gerekçe Hesaplaması Doldurma
             const risk = data.risk_analysis || {};

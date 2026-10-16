@@ -1501,3 +1501,11 @@ async def get_manifest():
 @app.get("/sw.js")
 async def get_sw():
     return FileResponse(static_dir / "sw.js", media_type="application/javascript")
+    @app.get("/legal", response_class=HTMLResponse)
+async def legal_page(request: Request):
+    user = get_current_user(request)
+    return templates.TemplateResponse(
+        request=request,
+        name="legal.html",
+        context={"user": user}
+    )
